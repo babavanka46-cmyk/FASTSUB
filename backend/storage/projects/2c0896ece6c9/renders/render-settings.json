@@ -1,0 +1,23 @@
+{
+  "resolution": "720p",
+  "fps": 24,
+  "style": {
+    "preset": "creator",
+    "animation": "pop",
+    "font_family": "Arial",
+    "font_size": 48,
+    "font_weight": 800,
+    "vertical_offset": 25,
+    "text_color": "#f4c64f",
+    "active_color": "#ffffff",
+    "shadow_color": "#000000"
+  },
+  "audio": {
+    "bgm_path": null,
+    "bgm_volume": 0.18,
+    "bgm_loop": true,
+    "sfx_name": null,
+    "sfx_density": 0.2,
+    "sfx_volume": 0.35
+  }
+}

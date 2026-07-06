@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FASTSUB Bridge</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <strong>FASTSUB</strong>
+        <span id="status" class="status">Checking...</span>
+      </header>
+      <label>
+        Local project id
+        <input id="projectId" placeholder="Project id from FASTSUB" />
+      </label>
+      <label>
+        Gemini API key
+        <input id="apiKey" type="password" placeholder="AIza..." />
+      </label>
+      <button id="save">Save</button>
+      <button id="correct" class="primary">Auto Correct Subtitles</button>
+      <p id="message"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
