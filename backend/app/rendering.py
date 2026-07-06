@@ -182,10 +182,81 @@ def _escape_ass_text(text: str) -> str:
 
 def write_ass_subtitles(path: Path, subtitles: SubtitleDocument, settings: RenderSettings) -> None:
     style = settings.style
-    primary = _hex_to_ass(style.text_color)
-    active = _hex_to_ass(style.active_color)
-    outline = _hex_to_ass(style.shadow_color)
-    margin_v = max(20, 1080 - int(1080 * (style.vertical_offset / 100)))
+    
+    # Normalize style variables from either flat fields or nested preset objects
+    font_family = style.font_family
+    font_size = style.font_size
+    font_weight = style.font_weight
+    vertical_offset = style.vertical_offset
+    text_color = style.text_color
+    active_color = style.active_color
+    shadow_color = style.shadow_color
+    
+    # Typography overrides
+    if style.typography:
+        font_family = style.typography.get("fontFamily", font_family)
+        font_size = style.typography.get("fontSize", font_size)
+        font_weight = style.typography.get("fontWeight", font_weight)
+        
+    # Fill overrides
+    if style.fill:
+        text_color = style.fill.get("textColor", text_color)
+        active_color = style.fill.get("activeColor", active_color)
+        
+    # Position overrides
+    if style.position:
+        vertical_offset = style.position.get("verticalOffset", vertical_offset)
+        
+    # Shadow overrides
+    if style.shadow:
+        shadow_color = style.shadow.get("color", shadow_color)
+        
+    primary = _hex_to_ass(text_color)
+    active = _hex_to_ass(active_color)
+    outline = _hex_to_ass(shadow_color)
+    
+    # Calculate vertical margin (MarginV is from bottom)
+    margin_v = max(20, int(1080 * (vertical_offset / 100)))
+    
+    # Border & Shadow styling configurations
+    border_style = 1
+    outline_val = 4
+    shadow_val = 2
+    back_colour = "&H80000000"
+    
+    # Load stroke values
+    if style.stroke:
+        if style.stroke.get("enabled"):
+            border_style = 1
+            outline_val = style.stroke.get("width", 4)
+            outline = _hex_to_ass(style.stroke.get("color", shadow_color))
+        else:
+            outline_val = 0
+            
+    # Load shadow values
+    if style.shadow:
+        if style.shadow.get("enabled"):
+            shadow_val = style.shadow.get("blur", 2)
+            shadow_val = max(shadow_val, abs(style.shadow.get("offsetX", 0)) + abs(style.shadow.get("offsetY", 0)))
+        else:
+            shadow_val = 0
+            
+    # Load background values
+    if style.background:
+        if style.background.get("enabled"):
+            border_style = 3  # Opaque background box
+            bg_color = style.background.get("color", "#000000")
+            bg_opacity = style.background.get("opacity", 0.72)
+            back_colour = _hex_to_ass(bg_color, bg_opacity)
+            
+    # Compile style presets if set
+    preset = style.preset.lower() if style.preset else ""
+    if preset == "boxed" and (not style.background or not style.background.get("enabled")):
+        border_style = 3
+        back_colour = "&HB4000000"
+        outline_val = 0
+        shadow_val = 0
+        
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -194,7 +265,7 @@ def write_ass_subtitles(path: Path, subtitles: SubtitleDocument, settings: Rende
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        f"Style: Default,{style.font_family},{style.font_size},{primary},{active},{outline},&H80000000,{1 if style.font_weight >= 700 else 0},0,0,0,100,100,0,0,1,4,2,2,80,80,{margin_v},1",
+        f"Style: Default,{font_family},{font_size},{primary},{active},{outline},{back_colour},{1 if font_weight >= 700 else 0},0,0,0,100,100,0,0,{border_style},{outline_val},{shadow_val},2,80,80,{margin_v},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -202,6 +273,34 @@ def write_ass_subtitles(path: Path, subtitles: SubtitleDocument, settings: Rende
     
     words_per_line = max(1, subtitles.words_per_line)
     
+    # Map animation styles to ASS formatting tags
+    anim_preset = "pop"
+    if isinstance(style.animation, dict):
+        anim_preset = style.animation.get("enter", "pop")
+    elif isinstance(style.animation, str):
+        anim_preset = style.animation
+        
+    anim_preset = anim_preset.lower()
+    anim_tag = ""
+    if anim_preset == "pop":
+        anim_tag = r"{\fscx90\fscy90\t(0,150,\fscx100\fscy100)}"
+    elif anim_preset == "fade" or anim_preset == "fadein":
+        anim_tag = r"{\alpha&HFF&\t(0,220,\alpha&H00&)}"
+    elif anim_preset == "bounce" or anim_preset == "bouncein":
+        anim_tag = r"{\fscx30\fscy30\t(0,150,\fscx112\fscy112)\t(150,280,\fscx100\fscy100)}"
+    elif anim_preset == "zoomin":
+        anim_tag = r"{\fscx50\fscy50\t(0,200,\fscx100\fscy100)}"
+    elif anim_preset == "fadeinup" or anim_preset == "slideinup":
+        anim_tag = r"{\alpha&HFF&\t(0,250,\alpha&H00&)}"
+    elif anim_preset == "flip":
+        anim_tag = r"{\frx90\t(0,250,\frx0)}"
+    elif anim_preset == "pulse":
+        anim_tag = r"{\t(0,150,\fscx110\fscy110)\t(150,300,\fscx100\fscy100)}"
+    elif anim_preset == "rubberband":
+        anim_tag = r"{\t(0,120,\fscx120\fscy80)\t(120,240,\fscx85\fscy115)\t(240,350,\fscx100\fscy100)}"
+    elif anim_preset == "tada":
+        anim_tag = r"{\t(0,100,\fscx95\fscy95\frz-3)\t(100,200,\fscx105\fscy105\frz3)\t(200,300,\fscx100\fscy100\frz0)}"
+        
     for segment in subtitles.segments:
         if segment.words:
             words = segment.words
@@ -214,11 +313,20 @@ def write_ass_subtitles(path: Path, subtitles: SubtitleDocument, settings: Rende
                 for w in chunk:
                     dur_cs = max(1, round((w.end - w.start) * 100))
                     escaped_word = _escape_ass_text(w.text)
-                    parts.append(f"{{\\k{dur_cs}}}{escaped_word}")
-                text = " ".join(parts)
+                    
+                    # Apply karaoke format highlights if enabled
+                    karaoke_mode = "word"
+                    if style.karaoke:
+                        karaoke_mode = style.karaoke.get("mode", "word")
+                    
+                    if karaoke_mode == "word":
+                        parts.append(f"{{\\kf{dur_cs}}}{escaped_word}")  # Smooth Karaoke Fill!
+                    else:
+                        parts.append(escaped_word)
+                text = anim_tag + " ".join(parts)
                 lines.append(f"Dialogue: 0,{_ass_time(chunk_start)},{_ass_time(chunk_end)},Default,,0,0,0,,{text}")
         else:
-            text = _escape_ass_text(segment.text)
+            text = anim_tag + _escape_ass_text(segment.text)
             lines.append(f"Dialogue: 0,{_ass_time(segment.start)},{_ass_time(segment.end)},Default,,0,0,0,,{text}")
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -227,9 +335,15 @@ def _karaoke_word(text: str, offset: float, duration: float) -> str:
     return f"{{\\k{max(1, round(duration * 100))}}}{text}"
 
 
-def _hex_to_ass(value: str) -> str:
+def _hex_to_ass(value: str, opacity: float = 1.0) -> str:
     clean = value.strip().lstrip("#")
     if len(clean) != 6:
-        clean = "ffffff"
-    rr, gg, bb = clean[0:2], clean[2:4], clean[4:6]
-    return f"&H00{bb}{gg}{rr}"
+        return "&H00FFFFFF"
+    r = clean[0:2]
+    g = clean[2:4]
+    b = clean[4:6]
+    
+    # ASS transparency goes from 00 (opaque) to FF (transparent)
+    alpha_int = max(0, min(255, int((1.0 - opacity) * 255)))
+    alpha_hex = f"{alpha_int:02X}"
+    return f"&H{alpha_hex}{b}{g}{r}"

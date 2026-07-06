@@ -1,0 +1,31 @@
+# Node
+node_modules/
+dist/
+build/
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+env/
+ENV/
+
+# FASTSUB local project storage and assets
+backend/storage/projects/
+backend/storage/temp/
+backend/storage/uploads/
+backend-*.log
+*.log
+
+# IDEs
+.vscode/
+.idea/
+.codex/

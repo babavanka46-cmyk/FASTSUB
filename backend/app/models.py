@@ -50,8 +50,10 @@ class Project(BaseModel):
 
 
 class StyleSettings(BaseModel):
+    id: str | None = None
+    name: str | None = None
     preset: str = "neon"
-    animation: str = "pop"
+    animation: Any = "pop"
     font_family: str = "Noto Sans Thai"
     font_size: int = 64
     font_weight: int = 800
@@ -59,6 +61,15 @@ class StyleSettings(BaseModel):
     text_color: str = "#ffffff"
     active_color: str = "#38f8b8"
     shadow_color: str = "#000000"
+    
+    # Nested properties mapping support
+    typography: dict[str, Any] | None = None
+    fill: dict[str, Any] | None = None
+    stroke: dict[str, Any] | None = None
+    shadow: dict[str, Any] | None = None
+    background: dict[str, Any] | None = None
+    position: dict[str, Any] | None = None
+    karaoke: dict[str, Any] | None = None
 
 
 class AudioSettings(BaseModel):

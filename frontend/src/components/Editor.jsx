@@ -2,54 +2,26 @@ import React, { useEffect } from 'react';
 import { ChevronLeft, Save, Upload, Wand2 } from 'lucide-react';
 import { TranscriptPanel } from './TranscriptPanel';
 import { PreviewPanel } from './PreviewPanel';
-import { InspectorPanel } from './InspectorPanel';
+import { CaptionStyleInspector } from './CaptionStyleInspector';
 import { TimelinePanel } from './TimelinePanel';
+import { FloatingAnimationPanel } from './animation/FloatingAnimationPanel';
+import { useEditor } from '../context/EditorContext';
 
-export function Editor(props) {
+export function Editor() {
   const {
     project,
-    projects,
     subtitles,
     activeWord,
-    activeSegment,
     activeTool,
-    previewWords,
     allWords,
     currentTime,
-    duration,
-    style,
-    renderOptions,
-    whisperSettings,
-    whisperStatus,
     videoRef,
-    wordsPerLine,
     isDirty,
-    audioSettings,
     undo,
     redo,
-    canUndo,
-    canRedo,
-    saveStatus,
-    onBack,
-    onProject,
-    onUpload,
-    onTranscribe,
     onSave,
-    onAutocorrect,
-    onRender,
-    onRenderOptions,
-    onSubtitleExport,
-    onTool,
-    onStyle,
-    onWhisperSettings,
-    onTime,
-    onWordChange,
-    onWordsPerLine,
     onDeleteWord,
-    onSubtitles,
-    onAudioSettings,
-    setToast,
-  } = props;
+  } = useEditor();
 
   // Keyboard shortcuts listener
   useEffect(() => {
@@ -108,81 +80,36 @@ export function Editor(props) {
 
   return (
     <main className="studio">
-      <StudioTopbar 
-        project={project}
-        projects={projects}
-        whisperSettings={whisperSettings}
-        whisperStatus={whisperStatus}
-        saveStatus={saveStatus}
-        onBack={onBack}
-        onProject={onProject}
-        onUpload={onUpload}
-        onTranscribe={onTranscribe}
-        onWhisperSettings={onWhisperSettings}
-        onSave={onSave}
-        onRender={onRender}
-      />
+      <StudioTopbar />
       <section className="studio-workspace">
-        <TranscriptPanel 
-          subtitles={subtitles}
-          activeWord={activeWord}
-          wordsPerLine={wordsPerLine}
-          onWordsPerLine={onWordsPerLine}
-          onWordChange={onWordChange}
-          onDeleteWord={onDeleteWord}
-          onAutocorrect={onAutocorrect}
-        />
-        <PreviewPanel 
-          project={project}
-          previewWords={previewWords}
-          activeWord={activeWord}
-          style={style}
-          videoRef={videoRef}
-          onTime={onTime}
-          currentTime={currentTime}
-          duration={duration}
-        />
-        <InspectorPanel 
-          project={project}
-          activeTool={activeTool}
-          onTool={onTool}
-          style={style}
-          onStyle={onStyle}
-          renderOptions={renderOptions}
-          onRenderOptions={onRenderOptions}
-          onRender={onRender}
-          onSubtitleExport={onSubtitleExport}
-          audioSettings={audioSettings}
-          onAudioSettings={onAudioSettings}
-          onSubtitles={onSubtitles}
-          setToast={setToast}
-        />
+        <TranscriptPanel />
+        <PreviewPanel />
+        <FloatingAnimationPanel />
+        <CaptionStyleInspector />
       </section>
-      <TimelinePanel 
-        allWords={allWords}
-        currentTime={currentTime}
-        duration={duration}
-        videoRef={videoRef}
-        onTime={onTime}
-      />
+      <TimelinePanel />
     </main>
   );
 }
 
-function StudioTopbar({ 
-  project, 
-  projects, 
-  whisperSettings, 
-  whisperStatus, 
-  saveStatus,
-  onBack, 
-  onProject, 
-  onUpload, 
-  onTranscribe, 
-  onWhisperSettings, 
-  onSave, 
-  onRender 
-}) {
+function StudioTopbar() {
+  const {
+    project,
+    projects,
+    whisperSettings,
+    whisperStatus,
+    saveStatus,
+    isLoading,
+    onBack,
+    onProject,
+    onUpload,
+    onTranscribe,
+    onWhisperSettings,
+    onSave,
+    onRender,
+    onSubtitleExport,
+  } = useEditor();
+
   const loadedModels = whisperStatus?.loaded_models?.map((item) => Array.isArray(item) ? item.join('/') : String(item)).join(', ');
   const statusText = whisperStatus?.installed
     ? `Whisper พร้อม: ${loadedModels || `${whisperSettings.model}/${whisperSettings.device}/${whisperSettings.computeType}`}`
@@ -190,10 +117,15 @@ function StudioTopbar({
   
   const updateWhisper = (patch) => onWhisperSettings((current) => ({ ...current, ...patch }));
 
+  const isLoadingTranscribe = isLoading?.transcribe || false;
+  const isLoadingRender = isLoading?.render || false;
+  const isLoadingUpload = isLoading?.upload || false;
+  const anyLoading = isLoadingTranscribe || isLoadingRender || isLoadingUpload;
+
   return (
     <header className="studio-topbar">
       <div className="top-left">
-        <button className="icon-button soft" onClick={onBack} title="กลับ"><ChevronLeft size={17} /></button>
+        <button className="icon-button soft" onClick={onBack} title="กลับ" disabled={anyLoading}><ChevronLeft size={17} /></button>
         <Brand compact />
         <div className="project-title">
           <strong>{project.name || 'โปรเจกต์ใหม่'}</strong>
@@ -212,34 +144,46 @@ function StudioTopbar({
         </div>
       </div>
       <div className="top-middle">
-        <button className="chip" disabled title="เพจหลัก (ยังไม่เปิดใช้งาน)">เพจหลัก</button>
-        <button className="chip" disabled title="FASTSUB Local (ยังไม่เปิดใช้งาน)">FASTSUB Local</button>
-        <button className="chip" disabled title="วิธีใช้งาน (ยังไม่เปิดใช้งาน)">วิธีใช้งาน</button>
-        
         <span style={{ fontSize: '12px', color: '#8d8d8d', marginLeft: '6px' }}>ภาษา:</span>
-        <select value={whisperSettings.language} onChange={(event) => updateWhisper({ language: event.target.value })}>
+        <select 
+          value={whisperSettings.language} 
+          onChange={(event) => updateWhisper({ language: event.target.value })}
+          disabled={anyLoading}
+        >
           <option value="th">ไทย</option>
           <option value="en">English</option>
           <option value="">Auto</option>
         </select>
         
         <span style={{ fontSize: '12px', color: '#8d8d8d' }}>โมเดล AI:</span>
-        <select value={whisperSettings.model} onChange={(event) => updateWhisper({ model: event.target.value })}>
+        <select 
+          value={whisperSettings.model} 
+          onChange={(event) => updateWhisper({ model: event.target.value })}
+          disabled={anyLoading}
+        >
           <option value="tiny">tiny</option>
           <option value="base">base</option>
           <option value="small">small</option>
           <option value="medium">medium</option>
         </select>
         
-        <select value={whisperSettings.device} onChange={(event) => {
-          const device = event.target.value;
-          updateWhisper({ device, computeType: device === 'cuda' ? 'float16' : 'int8' });
-        }}>
+        <select 
+          value={whisperSettings.device} 
+          onChange={(event) => {
+            const device = event.target.value;
+            updateWhisper({ device, computeType: device === 'cuda' ? 'float16' : 'int8' });
+          }}
+          disabled={anyLoading}
+        >
           <option value="cpu">CPU</option>
           <option value="cuda">GPU CUDA</option>
         </select>
         
-        <select value={whisperSettings.computeType} onChange={(event) => updateWhisper({ computeType: event.target.value })}>
+        <select 
+          value={whisperSettings.computeType} 
+          onChange={(event) => updateWhisper({ computeType: event.target.value })}
+          disabled={anyLoading}
+        >
           <option value="int8">int8</option>
           <option value="float16">float16</option>
           <option value="float32">float32</option>
@@ -250,20 +194,67 @@ function StudioTopbar({
             type="checkbox" 
             checked={whisperSettings.vadFilter} 
             onChange={(event) => updateWhisper({ vadFilter: event.target.checked })} 
+            disabled={anyLoading}
           />
           VAD
         </label>
         
-        <button className="button accent" onClick={onTranscribe}><Wand2 size={16} /> ถอดเสียง AI</button>
+        <button 
+          className="button accent" 
+          onClick={onTranscribe}
+          disabled={isLoadingTranscribe || anyLoading}
+        >
+          <Wand2 size={16} /> {isLoadingTranscribe ? 'กำลังถอดเสียง...' : 'ถอดเสียง AI'}
+        </button>
         <span className="gpu-note">{statusText}</span>
       </div>
       <div className="top-actions">
-        <select value={project.id} onChange={(event) => onProject(event.target.value)}>
+        <select 
+          value={project.id} 
+          onChange={(event) => onProject(event.target.value)}
+          disabled={anyLoading}
+        >
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
-        <label className="button ghost"><Upload size={16} /> นำเข้า<input type="file" accept="video/*" onChange={onUpload} /></label>
-        <button className="button ghost" onClick={onSave}><Save size={16} /> บันทึก</button>
-        <button className="button accent" onClick={onRender}>เรนเดอร์</button>
+        <label className="button ghost" style={{ opacity: isLoadingUpload ? 0.6 : 1, pointerEvents: isLoadingUpload ? 'none' : 'auto' }}>
+          <Upload size={16} /> นำเข้า
+          <input type="file" accept="video/*" onChange={onUpload} disabled={isLoadingUpload || anyLoading} />
+        </label>
+        <button className="button ghost" onClick={onSave} disabled={anyLoading}><Save size={16} /> บันทึก</button>
+        
+        {/* Subtitle Export Dropdown */}
+        <select 
+          onChange={(e) => {
+            if (e.target.value) {
+              onSubtitleExport(e.target.value);
+              e.target.value = ""; // Reset
+            }
+          }}
+          defaultValue=""
+          style={{ 
+            height: '34px',
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '6px',
+            color: '#dfdfdf',
+            padding: '0 8px',
+            fontSize: '12px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            outline: 'none',
+          }}
+          disabled={anyLoading}
+        >
+          <option value="" disabled>ส่งออกซับ 📥</option>
+          <option value="srt">SRT Format (.srt)</option>
+          <option value="vtt">VTT Format (.vtt)</option>
+          <option value="ass">ASS Format (.ass)</option>
+          <option value="txt">TXT Text Only (.txt)</option>
+        </select>
+
+        <button className="button accent" onClick={onRender} disabled={isLoadingRender || anyLoading}>
+          {isLoadingRender ? 'กำลังเรนเดอร์...' : 'เรนเดอร์'}
+        </button>
       </div>
     </header>
   );

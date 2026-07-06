@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import uuid
 from pathlib import Path
@@ -42,7 +43,18 @@ def extract_audio(project_id: str, source_video: str) -> str | None:
     except FileNotFoundError as exc:
         raise TranscriptionError("FFmpeg was not found on PATH. Install FFmpeg before uploading/transcribing videos.") from exc
     except subprocess.CalledProcessError as exc:
-        detail = exc.stderr[-1200:] if exc.stderr else "FFmpeg failed to extract audio from this video."
+        stderr = exc.stderr or ""
+        no_audio_markers = (
+            "Output file does not contain any stream",
+            "matches no streams",
+            "Stream map",
+            "does not contain any stream",
+        )
+        if any(marker in stderr for marker in no_audio_markers):
+            if output.exists():
+                output.unlink()
+            return None
+        detail = stderr[-1200:] if stderr else "FFmpeg failed to extract audio from this video."
         raise TranscriptionError(detail) from exc
     return str(output.relative_to(BASE_DIR))
 
@@ -130,26 +142,27 @@ def _transcribe_with_faster_whisper(
     )
     segments: list[SubtitleSegment] = []
     for idx, segment in enumerate(segments_iter):
+        segment_text = _normalize_transcript_text(segment.text)
         words: list[Word] = []
         for word in segment.words or []:
             words.append(
                 Word(
                     id=uuid.uuid4().hex[:10],
-                    text=word.word.strip(),
+                    text=_normalize_transcript_text(word.word),
                     start=float(word.start),
                     end=float(word.end),
                 )
             )
-        if _is_thai_language(language) and segment.text.strip():
-            words = _thai_segment_words(segment.text.strip(), float(segment.start), float(segment.end))
-        if not words and segment.text.strip():
-            words = _fallback_words(segment.text.strip(), float(segment.start), float(segment.end))
+        if _is_thai_language(language) and segment_text:
+            words = _thai_segment_words(segment_text, float(segment.start), float(segment.end))
+        if not words and segment_text:
+            words = _fallback_words(segment_text, float(segment.start), float(segment.end))
         segments.append(
             SubtitleSegment(
                 id=f"seg-{idx + 1}",
                 start=float(segment.start),
                 end=float(segment.end),
-                text=segment.text.strip(),
+                text=_join_words_for_language(words, language) if words else segment_text,
                 words=words,
             )
         )
@@ -163,8 +176,9 @@ def repair_thai_word_segments(project_id: str, subtitles: SubtitleDocument) -> S
     repaired.language = repaired.language or "th"
     for segment in repaired.segments:
         if _is_thai_language(repaired.language) and segment.text.strip():
-            segment.words = _thai_segment_words(segment.text.strip(), segment.start, segment.end)
-            segment.text = " ".join(word.text for word in segment.words)
+            segment.text = _normalize_transcript_text(segment.text)
+            segment.words = _thai_segment_words(segment.text, segment.start, segment.end)
+            segment.text = _join_words_for_language(segment.words, repaired.language)
     return save_subtitles(repaired)
 
 
@@ -173,6 +187,7 @@ def _is_thai_language(language: str | None) -> bool:
 
 
 def _thai_segment_words(text: str, start: float, end: float) -> list[Word]:
+    text = _normalize_transcript_text(text)
     try:
         from pythainlp.tokenize import word_tokenize
 
@@ -204,6 +219,23 @@ def _thai_segment_words(text: str, start: float, end: float) -> list[Word]:
     return words
 
 
+def _normalize_transcript_text(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    previous = None
+    while normalized != previous:
+        previous = normalized
+        normalized = re.sub(r"([\u0E00-\u0E7F])\s+([\u0E00-\u0E7F])", r"\1\2", normalized)
+        normalized = re.sub(r"\b([A-Za-z])\s+(?=[A-Za-z]\b)", r"\1", normalized)
+    return normalized
+
+
+def _join_words_for_language(words: list[Word], language: str | None) -> str:
+    parts = [word.text.strip() for word in words if word.text and word.text.strip()]
+    if _is_thai_language(language):
+        return "".join(parts)
+    return " ".join(parts)
+
+
 def _fallback_words(text: str, start: float, end: float) -> list[Word]:
     tokens = [token for token in text.split() if token]
     if not tokens:
@@ -219,3 +251,57 @@ def _fallback_words(text: str, start: float, end: float) -> list[Word]:
         )
         for index, token in enumerate(tokens)
     ]
+
+
+def check_video_codec(video_path: Path) -> str:
+    command = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(video_path)
+    ]
+    try:
+        res = subprocess.run(command, check=True, capture_output=True, text=True)
+        return res.stdout.strip().lower()
+    except Exception:
+        return "h264"
+
+
+def create_video_proxy(project_id: str, source_video_rel: str) -> bool:
+    source_path = BASE_DIR / source_video_rel
+    if not source_path.exists():
+        return False
+        
+    codec = check_video_codec(source_path)
+    file_size_mb = source_path.stat().st_size / (1024 * 1024)
+    needs_proxy = codec in {"hevc", "h265", "prores"} or file_size_mb > 50.0
+    
+    if not needs_proxy:
+        return False
+        
+    proxy_output = source_path.parent / "source_proxy.mp4"
+    if proxy_output.exists():
+        return True
+        
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i", str(source_path),
+        "-vcodec", "libx264",
+        "-preset", "veryfast",
+        "-crf", "28",
+        "-vf", "scale=-2:720",
+        "-acodec", "aac",
+        "-ar", "44100",
+        "-ac", "2",
+        str(proxy_output)
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True)
+        return True
+    except Exception:
+        if proxy_output.exists():
+            proxy_output.unlink()
+        return False

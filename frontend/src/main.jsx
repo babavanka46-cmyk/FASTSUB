@@ -1,90 +1,136 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { API, apiRequest } from './api';
-import { getActivePreviewWords } from './subtitleUtils';
+import {
+  createId,
+  getActivePreviewWords,
+} from './subtitleUtils';
+import {
+  addSubtitleSegment,
+  addSubtitleWord,
+  deleteSubtitleWord,
+  mergeSubtitleSegments,
+  mergeSubtitleWords,
+  splitSubtitleSegment,
+  updateCaptionText,
+  updateSubtitleWord,
+  regroupSubtitlesByWordsPerLine,
+} from './utils/subtitleDocument';
 import { Landing } from './components/Landing';
 import { Editor } from './components/Editor';
+import { useProjectSettingsAutosave, useSubtitlesAutosave } from './hooks/useAutosave';
+import { useEditorHistory } from './hooks/useEditorHistory';
+import { useProjects } from './hooks/useProjects';
+import { useRender } from './hooks/useRender';
+import { useTranscription } from './hooks/useTranscription';
+import { EditorProvider } from './context/EditorContext';
 import './styles.css';
+import './animate.css';
 
-const defaultStyle = {
-  preset: 'creator',
-  animation: 'pop',
-  font_family: 'Noto Sans Thai',
-  font_size: 42,
-  font_weight: 900,
-  vertical_offset: 25,
-  text_color: '#f4c64f',
-  active_color: '#ffffff',
-  shadow_color: '#050505',
+import { captionPresets } from './presets/captionPresets';
+
+const defaultStyle = captionPresets[0];
+
+const defaultAudioSettings = {
+  bgm_path: null,
+  bgm_volume: 0.18,
+  bgm_loop: true,
+  sfx_name: null,
+  sfx_density: 0.2,
+  sfx_volume: 0.35,
 };
 
+const defaultRenderOptions = { subtitleType: 'hard', resolution: '1080p', fps: 30 };
+
 function App() {
-  const [project, setProject] = useState(null);
-  const [projects, setProjects] = useState([]);
-  const [subtitles, setSubtitles] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [style, setStyle] = useState(defaultStyle);
   const [activeTool, setActiveTool] = useState('styles');
   const [wordsPerLine, setWordsPerLine] = useState(3);
-  const [whisperStatus, setWhisperStatus] = useState(null);
-  const [whisperSettings, setWhisperSettings] = useState({
-    language: 'th',
-    model: 'small',
-    device: 'cpu',
-    computeType: 'int8',
-    vadFilter: false,
-  });
-  const [audioSettings, setAudioSettings] = useState({
-    bgm_path: null,
-    bgm_volume: 0.18,
-    bgm_loop: true,
-    sfx_name: null,
-    sfx_density: 0.2,
-    sfx_volume: 0.35,
-  });
-  const [renderOptions, setRenderOptions] = useState({ subtitleType: 'hard', resolution: '1080p', fps: 30 });
+  const [audioSettings, setAudioSettings] = useState(defaultAudioSettings);
+  const [renderOptions, setRenderOptions] = useState(defaultRenderOptions);
   const [toast, setToast] = useState('');
   const [isDirty, setIsDirty] = useState(false);
-  const [past, setPast] = useState([]);
-  const [future, setFuture] = useState([]);
   const [saveStatus, setSaveStatus] = useState('saved'); // 'saved', 'dirty', 'saving', 'error'
+  const markSubtitlesDirty = useCallback(() => {
+    setIsDirty(true);
+    setSaveStatus('dirty');
+  }, []);
+  const {
+    value: subtitles,
+    replace: setSubtitles,
+    reset: resetSubtitles,
+    commit: pushToHistory,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useEditorHistory(null, { onDirty: markSubtitlesDirty });
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(false);
+  const [isLoading, setIsLoading] = useState({
+    projects: true,
+    upload: false,
+    transcribe: false,
+    render: false,
+    autocorrect: false,
+    repairThai: false,
+  });
   const videoRef = useRef(null);
 
-  const refreshProjects = () => {
-    fetch(`${API}/api/projects`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setProjects(data);
-      })
-      .catch(() => setProjects([]));
-  };
-
-  useEffect(() => {
-    refreshProjects();
-    apiRequest('/api/whisper/status').then(setWhisperStatus).catch(() => setWhisperStatus(null));
+  const updateLoading = useCallback((key, val) => {
+    setIsLoading((prev) => ({ ...prev, [key]: val }));
   }, []);
 
-  useEffect(() => {
-    if (!project) return;
-    fetch(`${API}/api/project/${project.id}/subtitles`)
-      .then((r) => r.json())
-      .then((data) => {
-        setSubtitles(data);
-        setWordsPerLine(data.words_per_line || 3);
-        setPast([]);
-        setFuture([]);
-        setIsDirty(false);
-        setSaveStatus('saved');
-      });
-  }, [project]);
+  const {
+    project,
+    projects,
+    setProject,
+    refreshProjects,
+    openProject,
+    uploadVideo,
+    updateProjectSettings,
+  } = useProjects({
+    defaultStyle,
+    defaultAudioSettings,
+    defaultRenderOptions,
+    resetSubtitles,
+    setVideoDuration,
+    setStyle,
+    setAudioSettings,
+    setRenderOptions,
+    setWordsPerLine,
+    setIsDirty,
+    setSaveStatus,
+    setToast,
+    setLoading: updateLoading,
+  });
+
+  const {
+    whisperStatus,
+    whisperSettings,
+    setWhisperSettings,
+    transcribe,
+    autocorrect,
+    repairThaiWords,
+  } = useTranscription({
+    project,
+    subtitles,
+    resetSubtitles,
+    commitSubtitles: pushToHistory,
+    setIsDirty,
+    setSaveStatus,
+    setToast,
+    setLoading: updateLoading,
+  });
 
   const allWords = useMemo(() => {
     return (subtitles?.segments || []).flatMap((segment) => segment.words || []);
   }, [subtitles]);
 
   const duration = useMemo(() => {
+    if (videoDuration > 0) return videoDuration;
     return Math.max(22, ...allWords.map((word) => word.end || 0), ...((subtitles?.segments || []).map((segment) => segment.end || 0)));
-  }, [allWords, subtitles]);
+  }, [allWords, subtitles, videoDuration]);
 
   const activeWord = useMemo(() => {
     for (const segment of subtitles?.segments || []) {
@@ -100,215 +146,132 @@ function App() {
   }, [subtitles, currentTime]);
 
   const previewWords = useMemo(() => {
-    return getActivePreviewWords(activeSegment, currentTime, wordsPerLine);
-  }, [activeSegment, currentTime, wordsPerLine]);
+    return getActivePreviewWords(activeSegment, currentTime);
+  }, [activeSegment, currentTime]);
 
-  // Debounced Autosave Effect
-  useEffect(() => {
-    if (!project || !subtitles || !isDirty) return;
+  const handleSubtitlesAutosaved = useCallback(() => {
+    setIsDirty(false);
+  }, []);
 
-    setSaveStatus('dirty');
+  const handleSubtitlesAutosaveError = useCallback((err) => {
+    setToast(`บันทึกอัตโนมัติล้มเหลว: ${err.message}`);
+  }, []);
 
-    const timer = setTimeout(async () => {
-      try {
-        setSaveStatus('saving');
-        const payload = { ...subtitles, words_per_line: wordsPerLine };
-        await apiRequest(`/api/project/${project.id}/subtitles`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        setIsDirty(false);
-        setSaveStatus('saved');
-      } catch (err) {
-        setSaveStatus('error');
-        setToast(`บันทึกอัตโนมัติล้มเหลว: ${err.message}`);
-      }
-    }, 3000);
+  const handleSettingsAutosaved = useCallback((payload) => {
+    if (project?.id) updateProjectSettings(project.id, payload);
+  }, [project?.id, updateProjectSettings]);
 
-    return () => clearTimeout(timer);
-  }, [subtitles, isDirty, wordsPerLine, project]);
+  const handleSettingsAutosaveError = useCallback((err) => {
+    console.error('Failed to save project settings:', err);
+  }, []);
 
-  const pushToHistory = (nextSubtitles) => {
-    setPast((prevPast) => {
-      const newPast = [...prevPast, subtitles];
-      if (newPast.length > 50) {
-        newPast.shift();
-      }
-      return newPast;
-    });
-    setFuture([]);
-    setSubtitles(nextSubtitles);
-    setIsDirty(true);
-    setSaveStatus('dirty');
-  };
+  useSubtitlesAutosave({
+    project,
+    subtitles,
+    wordsPerLine,
+    isDirty,
+    onSaved: handleSubtitlesAutosaved,
+    onStatus: setSaveStatus,
+    onError: handleSubtitlesAutosaveError,
+  });
 
-  const undo = () => {
-    if (past.length === 0) return;
-    const previous = past[past.length - 1];
-    const newPast = past.slice(0, past.length - 1);
-    
-    setPast(newPast);
-    setFuture((prevFuture) => [subtitles, ...prevFuture]);
-    setSubtitles(previous);
-    setIsDirty(true);
-    setSaveStatus('dirty');
-  };
+  useProjectSettingsAutosave({
+    project,
+    style,
+    audioSettings,
+    renderOptions,
+    wordsPerLine,
+    onSaved: handleSettingsAutosaved,
+    onError: handleSettingsAutosaveError,
+  });
 
-  const redo = () => {
-    if (future.length === 0) return;
-    const next = future[0];
-    const newFuture = future.slice(1);
-    
-    setPast((prevPast) => [...prevPast, subtitles]);
-    setFuture(newFuture);
-    setSubtitles(next);
-    setIsDirty(true);
-    setSaveStatus('dirty');
-  };
-
-  async function uploadVideo(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const form = new FormData();
-    form.append('file', file);
-    try {
-      setToast('กำลังอัปโหลด...');
-      const created = await apiRequest('/api/projects/upload', { method: 'POST', body: form });
-      setProject(created);
-      setProjects((items) => [created, ...items]);
-      setToast('อัปโหลดวิดีโอแล้ว');
-    } catch (error) {
-      setToast(`อัปโหลดไม่สำเร็จ: ${error.message}`);
-    } finally {
-      event.target.value = '';
-    }
-  }
-
-  async function transcribe() {
-    if (!project) return;
-    try {
-      setToast('กำลังถอดเสียง...');
-      const params = new URLSearchParams({
-        language: whisperSettings.language,
-        model: whisperSettings.model,
-        device: whisperSettings.device,
-        compute_type: whisperSettings.computeType,
-        vad_filter: String(whisperSettings.vadFilter),
-      });
-      const data = await apiRequest(`/api/project/${project.id}/transcribe?${params.toString()}`, { method: 'POST' });
-      setSubtitles(data);
-      const status = await apiRequest('/api/whisper/status');
-      setWhisperStatus(status);
-      setPast([]);
-      setFuture([]);
-      setIsDirty(false);
-      setSaveStatus('saved');
-      setToast('ถอดเสียงเรียบร้อย');
-    } catch (error) {
-      setToast(`ถอดเสียงไม่สำเร็จ: ${error.message}`);
-    }
-  }
-
-  async function saveSubtitles(next = subtitles) {
-    if (!project || !next) return;
-    const payload = { ...next, words_per_line: wordsPerLine };
-    try {
-      setSaveStatus('saving');
-      const data = await apiRequest(`/api/project/${project.id}/subtitles`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      setSubtitles(data);
-      setIsDirty(false);
-      setSaveStatus('saved');
-      setToast('บันทึกแล้ว');
-    } catch (error) {
-      setSaveStatus('error');
-      setToast(`บันทึกไม่สำเร็จ: ${error.message}`);
-    }
-  }
-
-  async function autocorrect(provider = 'local', geminiApiKey = '') {
-    if (!project || !subtitles) return;
-    try {
-      setToast('กำลังตรวจคำ...');
-      const payload = { provider };
-      if (provider === 'gemini' && geminiApiKey) {
-        payload.api_key = geminiApiKey;
-      }
-      const data = await apiRequest(`/api/project/${project.id}/autocorrect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      pushToHistory(data);
-      setToast('ตรวจคำเรียบร้อย');
-    } catch (error) {
-      setToast(`ตรวจคำไม่สำเร็จ: ${error.message}`);
-    }
-  }
-
-  async function renderVideo() {
-    if (!project) return;
-    try {
-      setToast('กำลังเรนเดอร์...');
-      const result = await apiRequest(`/api/project/${project.id}/render`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          resolution: renderOptions.resolution,
-          fps: renderOptions.fps,
-          subtitle_type: renderOptions.subtitleType,
-          style,
-          audio: audioSettings,
-        }),
-      });
-      setToast(result.message);
-    } catch (error) {
-      setToast(`เรนเดอร์ไม่สำเร็จ: ${error.message}`);
-    }
-  }
-
-  async function exportSubtitles(format) {
-    if (!project) return;
-    try {
-      const result = await apiRequest(`/api/project/${project.id}/subtitles/export?output_format=${format}`, { method: 'POST' });
-      setToast(result.message);
-      window.open(`${API}${result.output_url}`, '_blank');
-    } catch (error) {
-      setToast(`ส่งออกซับไม่สำเร็จ: ${error.message}`);
-    }
-  }
+  const {
+    saveSubtitles,
+    renderVideo,
+    exportSubtitles,
+  } = useRender({
+    project,
+    subtitles,
+    wordsPerLine,
+    style,
+    audioSettings,
+    renderOptions,
+    replaceSubtitles: setSubtitles,
+    setIsDirty,
+    setSaveStatus,
+    setToast,
+    setLoading: updateLoading,
+  });
 
   function updateWord(segmentId, wordId, text) {
-    if (!subtitles) return;
-    const next = structuredClone(subtitles);
-    const segment = next.segments.find((item) => item.id === segmentId);
-    const word = segment?.words.find((item) => item.id === wordId);
-    if (!segment || !word) return;
-    word.text = text;
-    segment.text = segment.words.map((item) => item.text).join(' ');
-    pushToHistory(next);
+    const result = updateSubtitleWord(subtitles, segmentId, wordId, text);
+    if (!result.ok) return;
+    pushToHistory(result.subtitles);
+  }
+
+  function updateRowText(wordRefs, nextText) {
+    const result = updateCaptionText(subtitles, wordRefs, nextText);
+    if (!result.ok) return;
+    pushToHistory(result.subtitles);
   }
 
   function deleteWord(segmentId, wordId) {
-    if (!subtitles) return;
-    const next = structuredClone(subtitles);
-    const segment = next.segments.find((item) => item.id === segmentId);
-    if (!segment) return;
-    segment.words = segment.words.filter((item) => item.id !== wordId);
-    segment.text = segment.words.map((item) => item.text).join(' ');
-    pushToHistory(next);
+    const result = deleteSubtitleWord(subtitles, segmentId, wordId);
+    if (!result.ok) return;
+    pushToHistory(result.subtitles);
   }
 
-  function openProject(id) {
-    const selected = projects.find((item) => item.id === id);
-    setProject(selected || null);
-    if (selected && selected.settings?.audio) {
-      setAudioSettings((prev) => ({ ...prev, ...selected.settings.audio }));
+  function addSegment(afterSegmentId) {
+    const result = addSubtitleSegment(subtitles, afterSegmentId, createId);
+    if (!result.ok) return;
+    pushToHistory(result.subtitles);
+    setCurrentTime(result.startTime);
+    setToast('เพิ่มช่วงซับไตเติลใหม่แล้ว');
+  }
+
+  function mergeSegments(segmentIdA, segmentIdB) {
+    const result = mergeSubtitleSegments(subtitles, segmentIdA, segmentIdB);
+    if (!result.ok) return;
+    pushToHistory(result.subtitles);
+    setCurrentTime(result.startTime);
+    setToast('รวมช่วงซับไตเติลเรียบร้อย');
+  }
+
+  function mergeWords(segmentId, wordIdA, wordIdB) {
+    const result = mergeSubtitleWords(subtitles, segmentId, wordIdA, wordIdB);
+    if (!result.ok) return;
+    pushToHistory(result.subtitles);
+    setCurrentTime(result.startTime);
+    setToast('รวมคำและเวลาเรียบร้อย');
+  }
+
+  function splitSegmentAtWord(segmentIdOrRequest, wordId) {
+    const result = splitSubtitleSegment(subtitles, segmentIdOrRequest, wordId, createId);
+    if (!result.ok) {
+      if (result.message) setToast(result.message);
+      return;
     }
+
+    pushToHistory(result.subtitles);
+    setCurrentTime(result.startTime);
+    setToast(result.message);
+  }
+
+  function changeWordsPerLine(value) {
+    setWordsPerLine(value);
+    const result = regroupSubtitlesByWordsPerLine(subtitles, value, createId);
+    if (result.ok) {
+      pushToHistory(result.subtitles);
+      setToast(`จัดคำบรรยายใหม่เป็น ${value} คำ/บรรทัด เรียบร้อย`);
+    }
+  }
+
+  function addWord(afterWordId) {
+    const result = addSubtitleWord(subtitles, afterWordId, createId);
+    if (!result.ok) return;
+    pushToHistory(result.subtitles);
+    setCurrentTime(result.startTime);
+    setToast('เพิ่มเวิร์ดเรียบร้อย');
   }
 
   return (
@@ -319,60 +282,70 @@ function App() {
           onProject={openProject} 
           onUpload={uploadVideo} 
           onRefreshProjects={refreshProjects}
-        />
-      ) : (
-        <Editor
-          project={project}
-          projects={projects}
-          subtitles={subtitles}
-          activeWord={activeWord}
-          activeSegment={activeSegment}
-          activeTool={activeTool}
-          previewWords={previewWords}
-          allWords={allWords}
-          currentTime={currentTime}
-          duration={duration}
-          style={style}
-          renderOptions={renderOptions}
-          whisperSettings={whisperSettings}
-          whisperStatus={whisperStatus}
-          videoRef={videoRef}
-          wordsPerLine={wordsPerLine}
-          isDirty={isDirty}
-          audioSettings={audioSettings}
-          undo={undo}
-          redo={redo}
-          canUndo={past.length > 0}
-          canRedo={future.length > 0}
-          saveStatus={saveStatus}
-          onBack={() => setProject(null)}
-          onProject={openProject}
-          onUpload={uploadVideo}
-          onTranscribe={transcribe}
-          onSave={() => saveSubtitles()}
-          onAutocorrect={autocorrect}
-          onRender={renderVideo}
-          onRenderOptions={setRenderOptions}
-          onSubtitleExport={exportSubtitles}
-          onTool={setActiveTool}
-          onStyle={setStyle}
-          onWhisperSettings={setWhisperSettings}
-          onTime={setCurrentTime}
-          onWordChange={updateWord}
-          onDeleteWord={deleteWord}
-          onWordsPerLine={(val) => {
-            setWordsPerLine(val);
-            if (subtitles) {
-              const next = { ...subtitles, words_per_line: val };
-              pushToHistory(next);
-            }
-          }}
-          onAudioSettings={setAudioSettings}
-          onSubtitles={(data) => {
-            pushToHistory(data);
-          }}
+          isLoading={isLoading}
           setToast={setToast}
         />
+      ) : (
+        <EditorProvider
+          value={{
+            project,
+            projects,
+            subtitles,
+            activeWord,
+            activeSegment,
+            segmentCount: (subtitles?.segments || []).length,
+            activeTool,
+            previewWords,
+            allWords,
+            currentTime,
+            duration,
+            style,
+            renderOptions,
+            whisperSettings,
+            whisperStatus,
+            videoRef,
+            wordsPerLine,
+            isDirty,
+            audioSettings,
+            undo,
+            redo,
+            canUndo,
+            canRedo,
+            saveStatus,
+            isLoading,
+            onBack: () => setProject(null),
+            onProject: openProject,
+            onUpload: uploadVideo,
+            onTranscribe: transcribe,
+            onSave: () => saveSubtitles(),
+            onAutocorrect: autocorrect,
+            onRepairThai: repairThaiWords,
+            onRender: renderVideo,
+            onRenderOptions: setRenderOptions,
+            onSubtitleExport: exportSubtitles,
+            onTool: setActiveTool,
+            onStyle: setStyle,
+            onWhisperSettings: setWhisperSettings,
+            onTime: setCurrentTime,
+            onDurationChange: setVideoDuration,
+            onWordChange: updateWord,
+            onRowTextChange: updateRowText,
+            onDeleteWord: deleteWord,
+            onAddSegment: addSegment,
+            onMergeSegments: mergeSegments,
+            onAddWord: addWord,
+            onMergeWords: mergeWords,
+            onSplitSegment: splitSegmentAtWord,
+            onWordsPerLine: changeWordsPerLine,
+            onAudioSettings: setAudioSettings,
+            onSubtitles: pushToHistory,
+            isInspectorCollapsed,
+            onInspectorCollapse: setIsInspectorCollapsed,
+            setToast,
+          }}
+        >
+          <Editor />
+        </EditorProvider>
       )}
       {toast && <button className="toast" onClick={() => setToast('')}>{toast}</button>}
     </div>

@@ -1,16 +1,45 @@
 import React, { useState } from 'react';
-import { Bell, Download, Languages, Layers, Music2, PanelRight, Plus, Sparkles, TextCursorInput, Upload } from 'lucide-react';
+import { Download, Layers, Music2, PanelRight, Plus, Sparkles, TextCursorInput, Upload } from 'lucide-react';
 import { apiRequest } from '../api';
 
 const tools = [
   { id: 'styles', label: 'สไตล์', icon: Sparkles },
   { id: 'typography', label: 'ตัวอักษร', icon: TextCursorInput },
-  { id: 'translation', label: 'แปลภาษา', icon: Languages },
   { id: 'bgm', label: 'เพลง', icon: Music2 },
-  { id: 'sfx', label: 'เอฟเฟกต์', icon: Bell },
   { id: 'export', label: 'ส่งออก', icon: Download },
   { id: 'layers', label: 'เลเยอร์', icon: Layers },
 ];
+
+const PRESET_STYLES = {
+  creator: {
+    text_color: '#f4c64f',
+    active_color: '#ffffff',
+    shadow_color: '#050505',
+    font_weight: 900,
+    animation: 'pop',
+  },
+  neon: {
+    text_color: '#7df9ff',
+    active_color: '#ffffff',
+    shadow_color: '#02b7ff',
+    font_weight: 800,
+    animation: 'pop',
+  },
+  minimal: {
+    text_color: '#ffffff',
+    active_color: '#f4c64f',
+    shadow_color: '#000000',
+    font_weight: 700,
+    animation: 'fade',
+  },
+  boxed: {
+    text_color: '#ffffff',
+    active_color: '#ffd16b',
+    shadow_color: '#000000',
+    font_weight: 800,
+    animation: 'fade',
+  },
+};
 
 export function InspectorPanel({
   project,
@@ -26,10 +55,14 @@ export function InspectorPanel({
   onAudioSettings,
   onSubtitles,
   setToast,
+  isLoading,
 }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isUploadingBgm, setIsUploadingBgm] = useState(false);
   const [targetLanguage, setTargetLanguage] = useState('English');
+  const isLoadingRender = isLoading?.render || false;
+  const isLoadingExport = isLoading?.export || false;
+  const exportBusy = isLoadingRender || isLoadingExport;
 
   const updateRenderOptions = (patch) => onRenderOptions((current) => ({ ...current, ...patch }));
   const updateAudioSettings = (patch) => onAudioSettings((current) => ({ ...current, ...patch }));
@@ -57,18 +90,7 @@ export function InspectorPanel({
   };
 
   const handleTranslate = async () => {
-    try {
-      setToast('กำลังแปลภาษา...');
-      const result = await apiRequest(`/api/project/${project.id}/translate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_language: targetLanguage }),
-      });
-      onSubtitles(result);
-      setToast(`แปลภาษาเป็น ${targetLanguage} เรียบร้อยแล้ว`);
-    } catch (err) {
-      setToast(`แปลภาษาไม่สำเร็จ: ${err.message}`);
-    }
+    setToast({ type: 'error', message: 'ฟีเจอร์แปลภาษายังไม่พร้อมใช้งานจริง' });
   };
 
   return (
@@ -81,7 +103,7 @@ export function InspectorPanel({
                 <button
                   key={preset}
                   className={`preset-button ${style.preset === preset ? 'active' : ''}`}
-                  onClick={() => onStyle({ ...style, preset })}
+                  onClick={() => onStyle({ ...style, preset, ...PRESET_STYLES[preset] })}
                 >
                   {preset}
                 </button>
@@ -105,6 +127,22 @@ export function InspectorPanel({
               <Labeled label="ตำแหน่ง"><input type="range" min="8" max="90" value={style.vertical_offset} onChange={(event) => onStyle({ ...style, vertical_offset: Number(event.target.value) })} /></Labeled>
               <Labeled label="สีหลัก"><input type="color" value={style.text_color} onChange={(event) => onStyle({ ...style, text_color: event.target.value })} /></Labeled>
               <Labeled label="สีไฮไลต์"><input type="color" value={style.active_color} onChange={(event) => onStyle({ ...style, active_color: event.target.value })} /></Labeled>
+              <Labeled label="อนิเมชันตัวอักษร">
+                <select value={style.animation} onChange={(event) => onStyle({ ...style, animation: event.target.value })}>
+                  <option value="pop">ขยายตัวพรีเมียม (Pop)</option>
+                  <option value="fade">เลือนหายธรรมชาติ (Fade)</option>
+                  <option value="bounce">กระดอนดิ้นได้ (Bounce)</option>
+                  <option value="bounceIn">กระดอนเข้าฉาก (Bounce In)</option>
+                  <option value="fadeIn">เลือนปรากฏ (Fade In)</option>
+                  <option value="fadeInUp">เลือนพุ่งขึ้นด้านบน (Fade In Up)</option>
+                  <option value="zoomIn">ซูมขยายใหญ่ (Zoom In)</option>
+                  <option value="flip">พลิกหมุนตัวอักษร (Flip)</option>
+                  <option value="pulse">เต้นเป็นจังหวะชีพจร (Pulse)</option>
+                  <option value="rubberBand">ยางยืดหยุ่น (Rubber Band)</option>
+                  <option value="tada">แต๊นแตนเอฟเฟกต์ (Tada)</option>
+                  <option value="slideInUp">เลื่อนพุ่งเข้าด้านบน (Slide In Up)</option>
+                </select>
+              </Labeled>
             </ControlGroup>
           )}
 
@@ -118,7 +156,7 @@ export function InspectorPanel({
                   <option value="Chinese">Chinese</option>
                 </select>
               </Labeled>
-              <button className="button accent full" onClick={handleTranslate}>แปลซับ</button>
+              <button className="button accent full" onClick={handleTranslate} disabled title="ฟีเจอร์แปลภาษายังไม่พร้อมใช้งานจริง">แปลซับ (เร็วๆ นี้)</button>
             </ControlGroup>
           )}
 
@@ -173,21 +211,21 @@ export function InspectorPanel({
 
           {activeTool === 'export' && (
             <ControlGroup title="ส่งออก">
-              <Labeled label="Subtitle type">
-                <select value={renderOptions.subtitleType} onChange={(event) => updateRenderOptions({ subtitleType: event.target.value })}>
-                  <option value="hard">Hard subtitle</option>
-                  <option value="soft">Soft subtitle</option>
+              <Labeled label="ประเภทซับไตเติล">
+                <select value={renderOptions.subtitleType} onChange={(event) => updateRenderOptions({ subtitleType: event.target.value })} disabled={exportBusy}>
+                  <option value="hard">ฝังซับในวิดีโอ (Hard Subtitle)</option>
+                  <option value="soft">แยกแทร็กซับไตเติล (Soft Subtitle)</option>
                 </select>
               </Labeled>
-              <Labeled label="Resolution">
-                <select value={renderOptions.resolution} onChange={(event) => updateRenderOptions({ resolution: event.target.value })}>
+              <Labeled label="ความละเอียด (Resolution)">
+                <select value={renderOptions.resolution} onChange={(event) => updateRenderOptions({ resolution: event.target.value })} disabled={exportBusy}>
                   <option>1080p</option>
                   <option>720p</option>
                   <option>1440p</option>
                 </select>
               </Labeled>
-              <Labeled label="FPS">
-                <select value={renderOptions.fps} onChange={(event) => updateRenderOptions({ fps: Number(event.target.value) })}>
+              <Labeled label="อัตราเฟรมเรต (FPS)">
+                <select value={renderOptions.fps} onChange={(event) => updateRenderOptions({ fps: Number(event.target.value) })} disabled={exportBusy}>
                   <option value="30">30</option>
                   <option value="24">24</option>
                   <option value="60">60</option>
@@ -196,13 +234,16 @@ export function InspectorPanel({
               
               <div style={{ margin: '14px 0 6px', fontSize: '13px', color: '#8d8d8d' }}>ส่งออกไฟล์ซับ:</div>
               <div className="export-grid">
-                <button className="button ghost" onClick={() => onSubtitleExport('srt')}>SRT</button>
-                <button className="button ghost" onClick={() => onSubtitleExport('vtt')}>VTT</button>
-                <button className="button ghost" onClick={() => onSubtitleExport('ass')}>ASS</button>
-                <button className="button ghost" onClick={() => onSubtitleExport('txt')}>TXT</button>
+                <button className="button ghost" onClick={() => onSubtitleExport('srt')} disabled={exportBusy}>SRT</button>
+                <button className="button ghost" onClick={() => onSubtitleExport('vtt')} disabled={exportBusy}>VTT</button>
+                <button className="button ghost" onClick={() => onSubtitleExport('ass')} disabled={exportBusy}>ASS</button>
+                <button className="button ghost" onClick={() => onSubtitleExport('txt')} disabled={exportBusy}>TXT</button>
               </div>
+              {isLoadingExport && <div className="hint-text">กำลังส่งออกไฟล์ซับ...</div>}
               
-              <button className="button accent full" onClick={onRender} style={{ marginTop: '16px' }}>Render Video</button>
+              <button className="button accent full" onClick={onRender} style={{ marginTop: '16px' }} disabled={exportBusy}>
+                {isLoadingRender ? 'กำลังเรนเดอร์...' : 'เรนเดอร์วิดีโอ'}
+              </button>
             </ControlGroup>
           )}
 
@@ -228,7 +269,7 @@ export function InspectorPanel({
               className={`rail-button ${activeTool === tool.id ? 'active' : ''}`}
               onClick={() => {
                 onTool(tool.id);
-                setIsCollapsed(false); // Auto expand on click
+                setIsCollapsed(false);
               }}
               title={tool.label}
             >
