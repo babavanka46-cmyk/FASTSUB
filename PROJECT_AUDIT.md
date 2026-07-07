@@ -1,9 +1,23 @@
 # FASTSUB — PROJECT AUDIT
 
-> **วันที่ตรวจ:** 6 ก.ค. 2026  
+> **วันที่ตรวจครั้งแรก:** 6 ก.ค. 2026  
+> **ยืนยันซ้ำล่าสุด:** 7 ก.ค. 2026 (หลัง `git pull`, branch `main` @ `4554fde`)  
+> **สถานะเอกสาร:** ✅ **พร้อมใช้งาน** — ตรงกับโค้ดปัจจุบัน, บั๊กที่ระบุยังไม่ถูกแก้ในโค้ด  
 > **ผู้ตรวจ:** Senior Full-Stack + QA (จากโค้ดจริงเท่านั้น ไม่เดา)  
 > **ขอบเขต:** `frontend/`, `backend/app/`, `extension/`  
-> **การยืนยัน build/test:** `python -m compileall app` ผ่าน | `npm install && npm run build` ผ่าน (Vite 6.4.3) | `npm test` ผ่าน 12/12
+> **คู่มือแก้ไข:** [`FIX_PLAN.md`](./FIX_PLAN.md)  
+> **การยืนยัน build/test (7 ก.ค. 2026):** `python -m compileall app` ผ่าน | `npm run build` ผ่าน (Vite 6.4.3) | `npm test` ผ่าน 12/12
+
+### สรุปการยืนยันซ้ำ (7 ก.ค. 2026)
+
+| รายการ | ผล |
+|--------|-----|
+| โครงสร้าง hooks + routers | ตรงกับเอกสาร |
+| C-01 BGM endpoint ผิด (`TranscriptPanel.jsx:643`) | **ยังมีบั๊ก** |
+| C-02 ลบแถวซับ stale loop (`TranscriptPanel.jsx:479`) | **ยังมีบั๊ก** |
+| H-01 URL `rendered_video` ผิด (`TranscriptPanel.jsx:664`) | **ยังมีบั๊ก** |
+| ลบโปรเจกต์ (`routers/projects.py`) | ทำงานแล้ว |
+| regroup words/line + video proxy streaming | ทำงานแล้ว (commit `117b75d`) |
 
 ---
 
@@ -484,3 +498,5 @@ FASTSUB/
 ---
 
 *เอกสารนี้อิงจาก source code ณ วันตรวจเท่านั้น ไม่รวมการทดสอบ E2E บน FFmpeg/Whisper จริง*
+
+*อัปเดตล่าสุด: 7 ก.ค. 2026 — ยืนยันซ้ำหลัง pull แล้ว เนื้อหาหลักยังใช้งานได้ บั๊ก C-01/C-02/H-01 ยังไม่ถูกแก้ในโค้ด*
