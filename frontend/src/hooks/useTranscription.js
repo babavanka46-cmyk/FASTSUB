@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiRequest } from '../api';
+import { createId } from '../subtitleUtils';
+import { regroupSubtitlesByWordsPerLine } from '../utils/subtitleDocument';
+import { pollJob } from '../utils/jobs';
 
 const defaultWhisperSettings = {
   language: 'th',
@@ -17,7 +20,10 @@ export function useTranscription({
   setIsDirty,
   setSaveStatus,
   setToast,
+  wordsPerLine,
   setLoading,
+  onJobStart,
+  onJobEnd,
 }) {
   const [whisperStatus, setWhisperStatus] = useState(null);
   const [whisperSettings, setWhisperSettings] = useState(defaultWhisperSettings);
@@ -50,8 +56,25 @@ export function useTranscription({
         compute_type: whisperSettings.computeType,
         vad_filter: String(whisperSettings.vadFilter),
       });
-      const data = await apiRequest(`/api/project/${project.id}/transcribe?${params.toString()}`, { method: 'POST' });
-      resetSubtitles(data);
+      const job = await apiRequest(`/api/project/${project.id}/transcribe/jobs?${params.toString()}`, { method: 'POST' });
+      onJobStart?.(job.id, 'transcribe');
+      const data = await pollJob(job.id, {
+        onStatus: (currentJob) => {
+          if (currentJob.status === 'queued') setToast('กำลังเข้าคิวถอดเสียง...');
+          if (currentJob.status === 'running') setToast('กำลังถอดเสียง...');
+        },
+      });
+      const targetWordsPerLine = wordsPerLine || data.words_per_line || 3;
+      const regrouped = regroupSubtitlesByWordsPerLine(data, targetWordsPerLine, createId);
+      const nextSubtitles = regrouped.ok ? { ...regrouped.subtitles, words_per_line: targetWordsPerLine } : data;
+      if (regrouped.ok) {
+        await apiRequest(`/api/project/${project.id}/subtitles`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(nextSubtitles),
+        });
+      }
+      resetSubtitles(nextSubtitles);
       await refreshWhisperStatus();
       setIsDirty(false);
       setSaveStatus('saved');
@@ -59,6 +82,7 @@ export function useTranscription({
     } catch (error) {
       setToast(`ถอดเสียงไม่สำเร็จ: ${error.message}`);
     } finally {
+      onJobEnd?.();
       setLoading?.('transcribe', false);
     }
   }, [
@@ -70,6 +94,9 @@ export function useTranscription({
     setSaveStatus,
     setToast,
     whisperSettings,
+    wordsPerLine,
+    onJobStart,
+    onJobEnd,
   ]);
 
   const autocorrect = useCallback(async (provider = 'local', geminiApiKey = '') => {

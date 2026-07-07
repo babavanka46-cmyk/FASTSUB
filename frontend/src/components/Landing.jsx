@@ -1,19 +1,22 @@
 import React, { useState } from 'react';
 import { Upload, FolderOpen, Trash2, Video, CheckCircle2, AlertCircle } from 'lucide-react';
-import { API, apiRequest } from '../api';
+import { apiRequest, mediaUrl } from '../api';
 
 function ProjectThumbnail({ proj }) {
   const videoRef = React.useRef(null);
-  const src = `${API}/media/${proj.source_video.replaceAll('\\', '/')}`;
+  const [hasError, setHasError] = useState(false);
+  const [shouldLoadVideo, setShouldLoadVideo] = useState(false);
+  const src = mediaUrl(proj.source_video);
 
   const handleMouseEnter = () => {
-    if (videoRef.current) {
+    setShouldLoadVideo(true);
+    if (videoRef.current && !hasError) {
       videoRef.current.play().catch(() => {});
     }
   };
 
   const handleMouseLeave = () => {
-    if (videoRef.current) {
+    if (videoRef.current && !hasError) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
@@ -33,18 +36,24 @@ function ProjectThumbnail({ proj }) {
         background: '#0a0a0b',
       }}
     >
-      <video
-        ref={videoRef}
-        src={src}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-        }}
-        preload="metadata"
-        muted
-        playsInline
-      />
+      {hasError || !shouldLoadVideo ? (
+        <Video size={36} style={{ color: '#444' }} />
+      ) : (
+        <video
+          ref={videoRef}
+          src={src}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }}
+          onError={() => setHasError(true)}
+          preload="none"
+          muted
+          playsInline
+          controlsList="nodownload"
+        />
+      )}
       {/* Semi-transparent hover overlay */}
       <div 
         style={{
@@ -59,7 +68,7 @@ function ProjectThumbnail({ proj }) {
   );
 }
 
-export function Landing({ projects, onProject, onUpload, onRefreshProjects, isLoading, setToast }) {
+export function Landing({ projects, onProject, onUpload, onRefreshProjects, isLoading, setToast, uploadProgress }) {
   const [pendingDeleteId, setPendingDeleteId] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const isLoadingUpload = isLoading?.upload || false;
@@ -85,7 +94,7 @@ export function Landing({ projects, onProject, onUpload, onRefreshProjects, isLo
   const getStatusText = (proj) => {
     // Determine status text based on project properties
     if (proj.status === 'rendered') return 'เรนเดอร์แล้ว';
-    if (proj.status === 'transcribed' || proj.subtitles_path) return 'ถอดเสียงแล้ว';
+    if (proj.status === 'transcribed') return 'ถอดเสียงแล้ว';
     return 'อัปโหลดวิดีโอแล้ว';
   };
 
@@ -126,12 +135,32 @@ export function Landing({ projects, onProject, onUpload, onRefreshProjects, isLo
               cursor: 'pointer',
               padding: '16px',
               textAlign: 'center',
-              transition: 'background 0.2s'
+              transition: 'background 0.2s',
+              position: 'relative',
+              overflow: 'hidden'
             }}
           >
-            <Upload size={32} style={{ color: '#d89443' }} />
-            <strong style={{ fontSize: '14px', color: '#dfdfdf' }}>{isLoadingUpload ? 'กำลังอัปโหลด...' : 'นำเข้าวิดีโอ (Import)'}</strong>
-            <span style={{ fontSize: '11px', color: '#8d8d8d' }}>รองรับไฟล์วิดีโอ MP4, WebM, MOV, AVI (สูงสุด 500MB)</span>
+            {uploadProgress !== null && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: `${uploadProgress}%`,
+                  background: 'rgba(216, 148, 67, 0.12)',
+                  transition: 'width 0.1s linear',
+                  zIndex: 0
+                }}
+              />
+            )}
+            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+              <Upload size={32} style={{ color: '#d89443' }} />
+              <strong style={{ fontSize: '14px', color: '#dfdfdf' }}>
+                {uploadProgress !== null ? `กำลังอัปโหลด... ${uploadProgress}%` : 'นำเข้าวิดีโอ (Import)'}
+              </strong>
+              <span style={{ fontSize: '11px', color: '#8d8d8d' }}>รองรับไฟล์วิดีโอ MP4, WebM, MOV, AVI (สูงสุด 500MB)</span>
+            </div>
             <input type="file" accept="video/*" onChange={onUpload} disabled={isBusy} style={{ display: 'none' }} />
           </label>
 

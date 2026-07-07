@@ -45,6 +45,26 @@ export function updateSubtitleWord(subtitles, segmentId, wordId, text) {
   return { ok: true, subtitles: next };
 }
 
+export function deleteSubtitleRow(subtitles, segmentId, wordIds = []) {
+  if (!subtitles) return { ok: false, subtitles };
+
+  const next = cloneDocument(subtitles);
+  const segment = next.segments.find((item) => item.id === segmentId);
+  if (!segment) return { ok: false, subtitles };
+
+  const targetIds = new Set(wordIds);
+  const beforeCount = (segment.words || []).length;
+  segment.words = (segment.words || []).filter((item) => !targetIds.has(item.id));
+  if (segment.words.length === beforeCount) return { ok: false, subtitles };
+
+  segment.text = joinCaptionText(segment.words.map((item) => item.text));
+  if (segment.words.length) {
+    segment.start = segment.words[0].start;
+    segment.end = segment.words[segment.words.length - 1].end;
+  }
+
+  return { ok: true, subtitles: next };
+}
 export function deleteSubtitleWord(subtitles, segmentId, wordId) {
   if (!subtitles) return { ok: false, subtitles };
 

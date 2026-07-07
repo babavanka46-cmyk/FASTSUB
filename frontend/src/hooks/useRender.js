@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { API, apiRequest } from '../api';
+import { API, apiRequest, mediaUrl } from '../api';
+import { pollJob } from '../utils/jobs';
 
 export function useRender({
   project,
@@ -13,6 +14,9 @@ export function useRender({
   setSaveStatus,
   setToast,
   setLoading,
+  onRendered,
+  onJobStart,
+  onJobEnd,
 }) {
   const saveSubtitles = useCallback(async (next = subtitles) => {
     if (!project || !next) return;
@@ -41,24 +45,33 @@ export function useRender({
     try {
       setLoading?.('render', true);
       setToast('กำลังเรนเดอร์...');
-      const result = await apiRequest(`/api/project/${project.id}/render`, {
+      const job = await apiRequest(`/api/project/${project.id}/render/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           resolution: renderOptions.resolution,
           fps: renderOptions.fps,
-          subtitle_type: renderOptions.subtitleType,
+          subtitle_type: renderOptions.subtitleType === 'soft' ? 'hard' : renderOptions.subtitleType,
           style,
           audio: audioSettings,
         }),
       });
-      setToast(result.message);
+      onJobStart?.(job.id, 'render');
+      const result = await pollJob(job.id, {
+        onStatus: (currentJob) => {
+          if (currentJob.status === 'queued') setToast('กำลังเข้าคิวเรนเดอร์...');
+          if (currentJob.status === 'running') setToast('กำลังเรนเดอร์...');
+        },
+      });
+      await onRendered?.();
+      setToast(result.message || 'เรนเดอร์เรียบร้อย');
     } catch (error) {
       setToast(`เรนเดอร์ไม่สำเร็จ: ${error.message}`);
     } finally {
+      onJobEnd?.();
       setLoading?.('render', false);
     }
-  }, [audioSettings, project, renderOptions, setLoading, setToast, style]);
+  }, [audioSettings, onRendered, project, renderOptions, setLoading, setToast, style, onJobStart, onJobEnd]);
 
   const exportSubtitles = useCallback(async (format) => {
     if (!project) return;

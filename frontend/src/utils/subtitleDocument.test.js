@@ -3,6 +3,7 @@ import {
   updateCaptionText,
   updateSubtitleWord,
   deleteSubtitleWord,
+  deleteSubtitleRow,
   addSubtitleSegment,
   mergeSubtitleSegments,
   mergeSubtitleWords,
@@ -82,6 +83,17 @@ describe('Subtitle Document Mutations', () => {
     });
   });
 
+  describe('deleteSubtitleRow', () => {
+    it('should delete multiple words in one transaction and sync segment text', () => {
+      const subs = getInitialSubtitles();
+      const result = deleteSubtitleRow(subs, 'seg_1', ['w1', 'w2']);
+      expect(result.ok).toBe(true);
+      expect(result.subtitles.segments[0].words).toHaveLength(1);
+      expect(result.subtitles.segments[0].words[0].id).toBe('w3');
+      expect(result.subtitles.segments[0].text).toBe('ต้อง');
+      expect(subs.segments[0].words).toHaveLength(3);
+    });
+  });
   describe('addSubtitleSegment', () => {
     it('should insert a blank segment after specified segment ID', () => {
       const subs = getInitialSubtitles();
@@ -140,14 +152,14 @@ describe('Subtitle Document Mutations', () => {
       const result = splitSubtitleSegment(subs, 'seg_1', 'w2', mockCreateId);
       expect(result.ok).toBe(true);
       expect(result.subtitles.segments).toHaveLength(3);
-      
+
       const leftSeg = result.subtitles.segments[0];
       const rightSeg = result.subtitles.segments[1];
-      
+
       expect(leftSeg.words).toHaveLength(2);
       expect(leftSeg.text).toBe('แถมยัง');
       expect(leftSeg.end).toBe(1.0);
-      
+
       expect(rightSeg.words).toHaveLength(1);
       expect(rightSeg.text).toBe('ต้อง');
       expect(rightSeg.start).toBe(1.0);
@@ -166,7 +178,7 @@ describe('Subtitle Document Mutations', () => {
       const result = splitSubtitleSegment(subs, request, null, mockCreateId);
       expect(result.ok).toBe(true);
       expect(result.subtitles.segments).toHaveLength(3);
-      
+
       const splitSeg = result.subtitles.segments[1]; // segment created from split remainder
       expect(splitSeg.words[0].text).toBe('อง');
     });
@@ -189,7 +201,7 @@ describe('Subtitle Document Mutations', () => {
       subs.segments[1].words[0].end = 4.5;
       subs.segments[1].words[1].start = 4.5;
       subs.segments[1].words[1].end = 5.0;
-      
+
       const result = regroupSubtitlesByWordsPerLine(subs, 4, mockCreateId);
       expect(result.ok).toBe(true);
       expect(result.subtitles.segments).toHaveLength(2);

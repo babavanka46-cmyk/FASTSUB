@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Volume2, VolumeX, Maximize2 } from 'lucide-react';
 import { formatPrecise, joinCaptionText } from '../subtitleUtils';
-import { API } from '../api';
+import { mediaUrl } from '../api';
 import { CaptionPreviewText } from './CaptionPreviewText';
 import { getBackgroundStyle, getFontStyle, getShadowStyle, getStrokeStyle } from '../utils/captionStyle';
 import { useEditor } from '../context/EditorContext';
@@ -20,6 +20,7 @@ export function PreviewPanel() {
     currentTime,
     duration,
     onRowTextChange,
+    setToast,
   } = useEditor();
   const [isPlaying, setIsPlaying] = useState(false);
   const [zoom, setZoom] = useState(100);
@@ -29,10 +30,29 @@ export function PreviewPanel() {
   const [isMuted, setIsMuted] = useState(false);
   const [isEditingSubtitle, setIsEditingSubtitle] = useState(false);
   const [subtitleDraft, setSubtitleDraft] = useState('');
+  const [proxyState, setProxyState] = useState('loading'); // 'loading' | 'ready' | 'error'
   const stageRef = useRef(null);
   const subtitleEditRef = useRef(null);
 
-  const src = `${API}/media/${project.source_video.replaceAll('\\', '/')}`;
+  useEffect(() => {
+    if (!project?.id) return;
+    let cancelled = false;
+    setProxyState('loading');
+    (async () => {
+      try {
+        const { pollProxyReady } = await import('../hooks/useProjectsHelpers');
+        await pollProxyReady(project.id);
+        if (!cancelled) setProxyState('ready');
+      } catch (err) {
+        if (!cancelled) setProxyState('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id]);
+
+  const src = mediaUrl(project?.source_video);
   const previewText = joinCaptionText((previewWords || []).map((word) => word.text));
   const canEditPreview = Boolean(onRowTextChange && activeSegment?.id && previewWords?.length);
   const verticalOffset = style?.position?.verticalOffset ?? style?.vertical_offset ?? 25;
@@ -307,10 +327,27 @@ export function PreviewPanel() {
             ref={videoRef} 
             src={src} 
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            onError={(e) => {
+              console.error('Video load error', e);
+              setProxyState('error');
+              setToast?.('⚠️ โหลดวีดีโอไม่ได้ อาจเป็นรูปแบบที่เบราว์เซอร์ไม่สนับสนุน (เช่น HEVC) ระบบกำลังแปลงไฟล์ หรือลองอัปโหลดใหม่');
+            }}
             onTimeUpdate={(event) => onTime(event.currentTarget.currentTime)} 
             onLoadedMetadata={(event) => onDurationChange?.(event.currentTarget.duration || 0)}
             onDurationChange={(event) => onDurationChange?.(event.currentTarget.duration || 0)}
           />
+          {proxyState === 'loading' && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', color: '#fff', flexDirection: 'column', gap: '12px', zIndex: 5, textAlign: 'center', padding: '12px' }}>
+              <div className="spinner" style={{ border: '3px solid rgba(255,255,255,0.1)', borderTop: '3px solid #fff', borderRadius: '50%', width: '28px', height: '28px', animation: 'spin 1s linear infinite' }} />
+              <span style={{ fontSize: '12px' }}>กำลังเตรียมวีดีโอ... (อาจใช้เวลา 30-60 วินาทีสำหรับไฟล์ขนาดใหญ่)</span>
+            </div>
+          )}
+          {proxyState === 'error' && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', color: '#ff8a8a', textAlign: 'center', padding: '20px', zIndex: 5, flexDirection: 'column', gap: '8px' }}>
+              <span style={{ fontSize: '14px', fontWeight: 'bold' }}>โหลดวีดีโอไม่ได้</span>
+              <span style={{ fontSize: '11px', color: '#ccc' }}>ลองรีเฟรชหน้า หรืออัปโหลดไฟล์ MP4 (H.264) แทน</span>
+            </div>
+          )}
           <CaptionPreviewText 
             previewWords={previewWords} 
             activeWord={activeWord} 

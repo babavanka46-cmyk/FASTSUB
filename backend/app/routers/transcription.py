@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 from fastapi import APIRouter, HTTPException, Query
+from ..jobs import cancel_job, get_job, start_job
 from ..models import AutoCorrectRequest, Project, SubtitleDocument, TranslateRequest
-from ..storage import get_project, get_subtitles, save_subtitles
+from ..storage import BASE_DIR, get_project, get_subtitles, save_subtitles
 from ..transcription import TranscriptionError, preload_whisper_model, repair_thai_word_segments, transcribe_project, whisper_status
 
 router = APIRouter(prefix="/api")
@@ -13,6 +14,8 @@ def _require_project(project_id: str) -> Project:
         return get_project(project_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 def validate_subtitle_document(document: SubtitleDocument) -> None:
     for segment in document.segments:
@@ -36,7 +39,7 @@ async def _correct_with_gemini(document: SubtitleDocument, api_key: str) -> Subt
         "You must strictly preserve the JSON structure and all start/end timeline values. "
         "Return only valid JSON matching the input schema exactly. Do not wrap in markdown backticks."
     )
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
     payload = {
         "contents": [
             {
@@ -49,7 +52,7 @@ async def _correct_with_gemini(document: SubtitleDocument, api_key: str) -> Subt
     
     try:
         async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(url, json=payload)
+            response = await client.post(url, json=payload, headers={"x-goog-api-key": api_key})
             if response.status_code == 400:
                 try:
                     err_json = response.json()
@@ -151,10 +154,59 @@ def transcribe(
     vad_filter: bool = Query(False),
 ) -> SubtitleDocument:
     current = _require_project(project_id)
+    if not current.audio_path or not (BASE_DIR / current.audio_path).exists():
+        raise HTTPException(
+            status_code=400,
+            detail="เครื่องยังสกัดเสียงจากวีดีโอไม่เสร็จสิ้น กรุณารอสักครู่แล้วลองใหม่อีกครั้ง"
+        )
     try:
         return transcribe_project(project_id, current.audio_path, language, model, device, compute_type, vad_filter)
     except TranscriptionError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/project/{project_id}/transcribe/jobs")
+def start_transcribe_job(
+    project_id: str,
+    language: str = Query("th"),
+    model: str = Query("small"),
+    device: str = Query("cpu"),
+    compute_type: str = Query("int8"),
+    vad_filter: bool = Query(False),
+) -> dict[str, object]:
+    current = _require_project(project_id)
+    if not current.audio_path or not (BASE_DIR / current.audio_path).exists():
+        raise HTTPException(
+            status_code=400,
+            detail="เครื่องยังสกัดเสียงจากวีดีโอไม่เสร็จสิ้น กรุณารอสักครู่แล้วลองใหม่อีกครั้ง"
+        )
+
+    def run() -> SubtitleDocument:
+        try:
+            return transcribe_project(project_id, current.audio_path, language, model, device, compute_type, vad_filter)
+        except TranscriptionError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+    return start_job("transcribe", run)
+
+
+@router.get("/jobs/{job_id}")
+def job_status(job_id: str) -> dict[str, object]:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job_endpoint(job_id: str) -> dict[str, object]:
+    job = cancel_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] != "cancelled":
+        raise HTTPException(status_code=409, detail="Job is already running or finished")
+    return job
+
 
 @router.post("/project/{project_id}/subtitles/repair-thai-words", response_model=SubtitleDocument)
 def repair_project_thai_words(project_id: str) -> SubtitleDocument:

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { apiRequest } from '../api';
 
 export function useSubtitlesAutosave({
@@ -10,10 +10,14 @@ export function useSubtitlesAutosave({
   onStatus,
   onError,
 }) {
+  const saveSeq = useRef(0);
+
   useEffect(() => {
     if (!project || !subtitles || !isDirty) return undefined;
 
     onStatus?.('dirty');
+    const seq = saveSeq.current + 1;
+    saveSeq.current = seq;
 
     const timer = setTimeout(async () => {
       try {
@@ -24,9 +28,11 @@ export function useSubtitlesAutosave({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        if (seq !== saveSeq.current) return;
         onSaved?.();
         onStatus?.('saved');
       } catch (err) {
+        if (seq !== saveSeq.current) return;
         onStatus?.('error');
         onError?.(err);
       }
@@ -45,8 +51,13 @@ export function useProjectSettingsAutosave({
   onSaved,
   onError,
 }) {
+  const saveSeq = useRef(0);
+
   useEffect(() => {
     if (!project) return undefined;
+
+    const seq = saveSeq.current + 1;
+    saveSeq.current = seq;
 
     const timer = setTimeout(async () => {
       try {
@@ -61,8 +72,10 @@ export function useProjectSettingsAutosave({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        if (seq !== saveSeq.current) return;
         onSaved?.(payload);
       } catch (err) {
+        if (seq !== saveSeq.current) return;
         onError?.(err);
       }
     }, 2000);

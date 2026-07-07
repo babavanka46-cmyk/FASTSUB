@@ -42,10 +42,11 @@ def stream_media(path: str, range: str | None = Header(None)):
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
         
-    # Redirect to H.264 proxy version automatically for browser preview if it exists
+    # Redirect to H.264 proxy version automatically for browser preview if it exists and is ready
     if file_path.name == "source.mp4" or file_path.suffix.lower() in {".mp4", ".mov", ".avi", ".webm", ".mkv"}:
         proxy_path = file_path.parent / "source_proxy.mp4"
-        if proxy_path.exists():
+        marker_path = file_path.parent / ".proxy_ready"
+        if marker_path.exists() and proxy_path.exists():
             file_path = proxy_path
             
     file_size = file_path.stat().st_size

@@ -7,7 +7,7 @@ import {
   getSegmentWordText,
   normalizeCaptionText,
 } from '../subtitleUtils';
-import { API } from '../api';
+import { apiRequest, mediaUrl } from '../api';
 import { getStoredString, setStoredString, storageKeys } from '../utils/editorStorage';
 import { CaptionGapActions } from './CaptionGapActions';
 import { SubtitleExpandedEditor } from './SubtitleExpandedEditor';
@@ -184,6 +184,7 @@ export function TranscriptPanel() {
     onWordChange,
     onRowTextChange,
     onDeleteWord,
+    onDeleteRow,
     onAddSegment,
     onMergeSegments,
     onAddWord,
@@ -195,6 +196,7 @@ export function TranscriptPanel() {
     project,
     audioSettings,
     onAudioSettings,
+    setToast,
   } = useEditor();
   const [activeTab, setActiveTab] = useState('transcript');
   const [expandedEditorOpen, setExpandedEditorOpen] = useState(false);
@@ -276,8 +278,9 @@ export function TranscriptPanel() {
 
   const autocorrectLabel = autocorrectProvider === 'local' ? 'จัดระเบียบช่องว่าง' : 'ตรวจคำด้วย Gemini AI';
 
-  const videoSrc = project?.source_video ? `${API}/media/${project.source_video.replaceAll('\\', '/')}` : null;
-  const bgmSrc = audioSettings?.bgm_path ? `${API}/media/storage/${audioSettings.bgm_path.split('/storage/').pop()}` : null;
+  const videoSrc = mediaUrl(project?.source_video);
+  const bgmSrc = mediaUrl(audioSettings?.bgm_path);
+  const renderedVideoSrc = mediaUrl(project?.rendered_video);
   const lastSegmentId = subtitles?.segments?.[subtitles.segments.length - 1]?.id;
 
   return (
@@ -300,6 +303,7 @@ export function TranscriptPanel() {
         onWordChange={onWordChange}
         onRowTextChange={onRowTextChange}
         onDeleteWord={onDeleteWord}
+        onDeleteRow={onDeleteRow}
         onAddWord={onAddWord}
         onMergeSegments={onMergeSegments}
         onMergeWords={onMergeWords}
@@ -432,7 +436,7 @@ export function TranscriptPanel() {
                   const lastWord = row.words[row.words.length - 1];
                   const nextRow = groupedRows[index + 1];
                   const nextFirstWord = nextRow ? nextRow.words[0] : null;
-                  
+
                   const handleMerge = nextRow
                     ? () => {
                         if (!lastWord || !nextFirstWord) {
@@ -476,9 +480,7 @@ export function TranscriptPanel() {
                         </div>
                         <button
                           onClick={() => {
-                            row.words.forEach((word) => {
-                              onDeleteWord(word.segmentId, word.id);
-                            });
+                            onDeleteRow?.(row.id, row.words.map((item) => item.id));
                           }}
                           style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}
                           disabled={actionBusy}
@@ -486,7 +488,7 @@ export function TranscriptPanel() {
                           ลบ
                         </button>
                       </div>
-                      
+
                       {index < groupedRows.length - 1 && (
                         <CaptionGapActions
                           onAdd={lastWord ? () => onAddWord(lastWord.id) : null}
@@ -559,7 +561,7 @@ export function TranscriptPanel() {
                   ))}
                 </div>
               </div>
-              
+
               {segIdx < subtitles.segments.length - 1 && (
                 <CaptionGapActions
                   onAdd={() => onAddSegment(segment.id)}
@@ -589,6 +591,8 @@ export function TranscriptPanel() {
                 <video
                   src={videoSrc}
                   controls
+                  preload="none"
+                  controlsList="nodownload"
                   style={{ width: '100%', borderRadius: '6px', maxHeight: '140px', objectFit: 'contain', background: '#000' }}
                 />
               </>
@@ -640,11 +644,13 @@ export function TranscriptPanel() {
                       const form = new FormData();
                       form.append('file', file);
                       try {
-                        const res = await fetch(`${API}/api/project/${project.id}/bgm`, { method: 'POST', body: form });
-                        const data = await res.json();
-                        onAudioSettings?.({ ...audioSettings, bgm_path: data.bgm_path });
+                        const data = await apiRequest(`/api/project/${project.id}/assets/bgm`, { method: 'POST', body: form });
+                        onAudioSettings?.({ ...audioSettings, bgm_path: data.path });
+                        setToast?.('อัปโหลดเพลงประกอบแล้ว');
                       } catch (err) {
-                        console.error('BGM upload failed', err);
+                        setToast?.(`อัปโหลดเพลงประกอบไม่สำเร็จ: ${err.message}`);
+                      } finally {
+                        e.target.value = '';
                       }
                     }}
                   />
@@ -654,19 +660,21 @@ export function TranscriptPanel() {
           </div>
 
           {/* Rendered Output */}
-          {project?.rendered_video && (
+          {renderedVideoSrc && (
             <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '10px', background: 'rgba(30,30,32,0.4)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                 <Film size={14} style={{ color: '#00e676' }} />
                 <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#00e676' }}>วิดีโอที่เรนเดอร์แล้ว</span>
               </div>
               <video
-                src={`${API}${project.rendered_video}`}
+                src={renderedVideoSrc}
                 controls
+                preload="none"
+                controlsList="nodownload"
                 style={{ width: '100%', borderRadius: '6px', maxHeight: '140px', objectFit: 'contain', background: '#000' }}
               />
               <a
-                href={`${API}${project.rendered_video}`}
+                href={renderedVideoSrc}
                 download
                 style={{ display: 'block', marginTop: '8px', textAlign: 'center', fontSize: '12px', color: '#d89443', textDecoration: 'none', padding: '6px', borderRadius: '6px', background: 'rgba(216,148,67,0.08)', border: '1px solid rgba(216,148,67,0.15)' }}
               >

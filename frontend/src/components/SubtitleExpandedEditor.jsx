@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Play, Pause, Scissors } from 'lucide-react';
 import { formatPrecise, getActivePreviewWords, normalizeCaptionText } from '../subtitleUtils';
-import { API } from '../api';
+import { mediaUrl } from '../api';
 import { CaptionPreviewText } from './CaptionPreviewText';
 import { CaptionGapActions } from './CaptionGapActions';
 import { getRowDraftValue, createRowWordRefs } from './TranscriptPanel';
@@ -172,6 +172,7 @@ export function SubtitleExpandedEditor({
   onWordChange,
   onRowTextChange,
   onDeleteWord,
+  onDeleteRow,
   onAddWord,
   onMergeSegments,
   onMergeWords,
@@ -185,7 +186,7 @@ export function SubtitleExpandedEditor({
 
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
   const safeCurrentTime = Number.isFinite(currentTime) ? currentTime : 0;
-  const videoSrc = project?.source_video ? `${API}/media/${project.source_video.replaceAll('\\', '/')}` : null;
+  const videoSrc = mediaUrl(project?.source_video);
   const currentFont = style?.typography?.fontFamily || style?.font_family || 'Noto Sans Thai';
   const currentFontSize = style?.typography?.fontSize || style?.font_size || 42;
   const currentVerticalOffset = style?.position?.verticalOffset ?? style?.vertical_offset ?? 25;
@@ -389,6 +390,8 @@ export function SubtitleExpandedEditor({
                   ref={modalVideoRef}
                   className="subtitle-editor-video"
                   src={videoSrc}
+                  preload="none"
+                  controlsList="nodownload"
                   onTimeUpdate={(event) => onTime?.(event.currentTarget.currentTime)}
                 />
               ) : (
@@ -475,7 +478,7 @@ export function SubtitleExpandedEditor({
                         <button
                           className="subtitle-editor-delete"
                           onClick={() => {
-                            row.words.forEach((word) => onDeleteWord(word.segmentId, word.id));
+                            onDeleteRow?.(row.id, row.words.map((word) => word.id));
                           }}
                           disabled={actionBusy}
                         >

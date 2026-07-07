@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { apiRequest } from '../api';
+import { apiRequest, uploadWithProgress } from '../api';
 import { validateVideoFile } from '../utils/videoUploadValidation';
 
 export function useProjects({
@@ -19,6 +19,7 @@ export function useProjects({
 }) {
   const [project, setProject] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState(null);
 
   const refreshProjects = useCallback(async () => {
     try {
@@ -115,20 +116,43 @@ export function useProjects({
 
     try {
       setLoading?.('upload', true);
+      setUploadProgress(0);
       setToast('กำลังอัปโหลด...');
       setVideoDuration(0);
-      const created = await apiRequest('/api/projects/upload', { method: 'POST', body: form });
+
+      const created = await uploadWithProgress('/api/projects/upload', form, {
+        onProgress: (pct) => setUploadProgress(pct),
+      });
+
       setProject(created);
       setProjects((items) => [created, ...items]);
-      setToast('อัปโหลดวิดีโอแล้ว');
+      setToast('อัปโหลดวิดีโอแล้ว กำลังเตรียมไฟล์...');
     } catch (error) {
       setToast(`อัปโหลดไม่สำเร็จ: ${error.message}`);
     } finally {
       setLoading?.('upload', false);
+      setUploadProgress(null);
       event.target.value = '';
     }
   }, [setLoading, setToast, setVideoDuration]);
 
+  const refreshProject = useCallback(async (projectId = project?.id) => {
+    if (!projectId) return null;
+
+    try {
+      const latest = await apiRequest(`/api/project/${projectId}`);
+      setProjects((currentProjects) => {
+        const exists = currentProjects.some((item) => item.id === latest.id);
+        if (!exists) return [latest, ...currentProjects];
+        return currentProjects.map((item) => (item.id === latest.id ? latest : item));
+      });
+      setProject((currentProject) => (currentProject?.id === latest.id ? latest : currentProject));
+      return latest;
+    } catch (error) {
+      setToast?.(`รีเฟรชโปรเจกต์ไม่สำเร็จ: ${error.message}`);
+      return null;
+    }
+  }, [project?.id, setToast]);
   const updateProjectSettings = useCallback((projectId, settings) => {
     setProjects((currentProjects) =>
       currentProjects.map((item) => (item.id === projectId ? { ...item, settings } : item))
@@ -140,8 +164,10 @@ export function useProjects({
     projects,
     setProject,
     refreshProjects,
+    refreshProject,
     openProject,
     uploadVideo,
     updateProjectSettings,
+    uploadProgress,
   };
 }
