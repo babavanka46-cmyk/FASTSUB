@@ -1,5 +1,5 @@
 @echo off
-cd /d D:\Ai-app-Project\FASTSUB
+cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$backend='DOWN'; $frontend='DOWN';" ^
   "try { $r=Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8100/api/health -TimeoutSec 5; if ($r.StatusCode -eq 200) { $backend='OK' } } catch {}" ^

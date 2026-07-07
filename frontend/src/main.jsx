@@ -8,6 +8,7 @@ import {
   addSubtitleSegment,
   addSubtitleWord,
   deleteSubtitleWord,
+  deleteSubtitleRow,
   mergeSubtitleSegments,
   mergeSubtitleWords,
   splitSubtitleSegment,
@@ -17,12 +18,14 @@ import {
 } from './utils/subtitleDocument';
 import { Landing } from './components/Landing';
 import { Editor } from './components/Editor';
+import { Toast } from './components/Toast';
 import { useProjectSettingsAutosave, useSubtitlesAutosave } from './hooks/useAutosave';
 import { useEditorHistory } from './hooks/useEditorHistory';
 import { useProjects } from './hooks/useProjects';
 import { useRender } from './hooks/useRender';
 import { useTranscription } from './hooks/useTranscription';
 import { EditorProvider } from './context/EditorContext';
+import { apiRequest } from './api';
 import './styles.css';
 import './animate.css';
 
@@ -48,7 +51,16 @@ function App() {
   const [wordsPerLine, setWordsPerLine] = useState(3);
   const [audioSettings, setAudioSettings] = useState(defaultAudioSettings);
   const [renderOptions, setRenderOptions] = useState(defaultRenderOptions);
-  const [toast, setToast] = useState('');
+  const [toast, setToastState] = useState({ message: '', type: 'info' });
+  const setToast = useCallback((msg, type = 'info') => {
+    if (typeof msg === 'string') {
+      setToastState({ message: msg, type });
+    } else if (msg && typeof msg === 'object') {
+      setToastState({ message: msg.message || '', type: msg.type || 'info' });
+    } else {
+      setToastState({ message: '', type: 'info' });
+    }
+  }, []);
   const [isDirty, setIsDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState('saved'); // 'saved', 'dirty', 'saving', 'error'
   const markSubtitlesDirty = useCallback(() => {
@@ -67,6 +79,7 @@ function App() {
   } = useEditorHistory(null, { onDirty: markSubtitlesDirty });
   const [videoDuration, setVideoDuration] = useState(0);
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(false);
+  const [activeJob, setActiveJob] = useState(null);
   const [isLoading, setIsLoading] = useState({
     projects: true,
     upload: false,
@@ -81,14 +94,28 @@ function App() {
     setIsLoading((prev) => ({ ...prev, [key]: val }));
   }, []);
 
+  const cancelActiveJob = useCallback(async () => {
+    if (!activeJob) return;
+    try {
+      setToast('กำลังส่งคำขอยกเลิกงาน...');
+      await apiRequest(`/api/jobs/${activeJob.id}/cancel`, { method: 'POST' });
+      setToast('ยกเลิกงานเรียบร้อยแล้ว');
+      setActiveJob(null);
+    } catch (err) {
+      setToast(`ยกเลิกงานไม่สำเร็จ: ${err.message}`);
+    }
+  }, [activeJob]);
+
   const {
     project,
     projects,
     setProject,
     refreshProjects,
+    refreshProject,
     openProject,
     uploadVideo,
     updateProjectSettings,
+    uploadProgress,
   } = useProjects({
     defaultStyle,
     defaultAudioSettings,
@@ -121,6 +148,8 @@ function App() {
     setSaveStatus,
     setToast,
     setLoading: updateLoading,
+    onJobStart: (id, type) => setActiveJob({ id, type }),
+    onJobEnd: () => setActiveJob(null),
   });
 
   const allWords = useMemo(() => {
@@ -201,6 +230,9 @@ function App() {
     setSaveStatus,
     setToast,
     setLoading: updateLoading,
+    onRendered: refreshProject,
+    onJobStart: (id, type) => setActiveJob({ id, type }),
+    onJobEnd: () => setActiveJob(null),
   });
 
   function updateWord(segmentId, wordId, text) {
@@ -217,6 +249,12 @@ function App() {
 
   function deleteWord(segmentId, wordId) {
     const result = deleteSubtitleWord(subtitles, segmentId, wordId);
+    if (!result.ok) return;
+    pushToHistory(result.subtitles);
+  }
+
+  function deleteRow(segmentId, wordIds) {
+    const result = deleteSubtitleRow(subtitles, segmentId, wordIds);
     if (!result.ok) return;
     pushToHistory(result.subtitles);
   }
@@ -284,6 +322,7 @@ function App() {
           onRefreshProjects={refreshProjects}
           isLoading={isLoading}
           setToast={setToast}
+          uploadProgress={uploadProgress}
         />
       ) : (
         <EditorProvider
@@ -331,6 +370,7 @@ function App() {
             onWordChange: updateWord,
             onRowTextChange: updateRowText,
             onDeleteWord: deleteWord,
+            onDeleteRow: deleteRow,
             onAddSegment: addSegment,
             onMergeSegments: mergeSegments,
             onAddWord: addWord,
@@ -341,13 +381,15 @@ function App() {
             onSubtitles: pushToHistory,
             isInspectorCollapsed,
             onInspectorCollapse: setIsInspectorCollapsed,
+            activeJob,
+            onCancelJob: cancelActiveJob,
             setToast,
           }}
         >
           <Editor />
         </EditorProvider>
       )}
-      {toast && <button className="toast" onClick={() => setToast('')}>{toast}</button>}
+      <Toast message={toast.message} type={toast.type} onClose={() => setToast('')} />
     </div>
   );
 }

@@ -21,6 +21,7 @@ export function Editor() {
     redo,
     onSave,
     onDeleteWord,
+    saveStatus,
   } = useEditor();
 
   // Keyboard shortcuts listener
@@ -65,7 +66,7 @@ export function Editor() {
   // Warn user on close if dirty
   useEffect(() => {
     const handleBeforeUnload = (event) => {
-      if (isDirty) {
+      if (isDirty && saveStatus !== 'saving') {
         event.preventDefault();
         event.returnValue = 'คุณมีงานที่ยังไม่ได้บันทึก แน่ใจหรือไม่ว่าต้องการออกจากหน้านี้?';
         return event.returnValue;
@@ -76,7 +77,7 @@ export function Editor() {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [isDirty]);
+  }, [isDirty, saveStatus]);
 
   return (
     <main className="studio">
@@ -106,21 +107,24 @@ function StudioTopbar() {
     onTranscribe,
     onWhisperSettings,
     onSave,
-    onRender,
-    onSubtitleExport,
+    activeJob,
+    onCancelJob,
   } = useEditor();
 
   const loadedModels = whisperStatus?.loaded_models?.map((item) => Array.isArray(item) ? item.join('/') : String(item)).join(', ');
   const statusText = whisperStatus?.installed
     ? `Whisper พร้อม: ${loadedModels || `${whisperSettings.model}/${whisperSettings.device}/${whisperSettings.computeType}`}`
     : 'Whisper ยังไม่พร้อม';
-  
+
   const updateWhisper = (patch) => onWhisperSettings((current) => ({ ...current, ...patch }));
 
   const isLoadingTranscribe = isLoading?.transcribe || false;
   const isLoadingRender = isLoading?.render || false;
   const isLoadingUpload = isLoading?.upload || false;
-  const anyLoading = isLoadingTranscribe || isLoadingRender || isLoadingUpload;
+  const isLoadingAutocorrect = isLoading?.autocorrect || false;
+  const isLoadingRepairThai = isLoading?.repairThai || false;
+  const isLoadingExport = isLoading?.export || false;
+  const anyLoading = isLoadingTranscribe || isLoadingRender || isLoadingUpload || isLoadingAutocorrect || isLoadingRepairThai || isLoadingExport;
 
   return (
     <header className="studio-topbar">
@@ -145,8 +149,8 @@ function StudioTopbar() {
       </div>
       <div className="top-middle">
         <span style={{ fontSize: '12px', color: '#8d8d8d', marginLeft: '6px' }}>ภาษา:</span>
-        <select 
-          value={whisperSettings.language} 
+        <select
+          value={whisperSettings.language}
           onChange={(event) => updateWhisper({ language: event.target.value })}
           disabled={anyLoading}
         >
@@ -154,10 +158,10 @@ function StudioTopbar() {
           <option value="en">English</option>
           <option value="">Auto</option>
         </select>
-        
+
         <span style={{ fontSize: '12px', color: '#8d8d8d' }}>โมเดล AI:</span>
-        <select 
-          value={whisperSettings.model} 
+        <select
+          value={whisperSettings.model}
           onChange={(event) => updateWhisper({ model: event.target.value })}
           disabled={anyLoading}
         >
@@ -166,9 +170,9 @@ function StudioTopbar() {
           <option value="small">small</option>
           <option value="medium">medium</option>
         </select>
-        
-        <select 
-          value={whisperSettings.device} 
+
+        <select
+          value={whisperSettings.device}
           onChange={(event) => {
             const device = event.target.value;
             updateWhisper({ device, computeType: device === 'cuda' ? 'float16' : 'int8' });
@@ -178,9 +182,9 @@ function StudioTopbar() {
           <option value="cpu">CPU</option>
           <option value="cuda">GPU CUDA</option>
         </select>
-        
-        <select 
-          value={whisperSettings.computeType} 
+
+        <select
+          value={whisperSettings.computeType}
           onChange={(event) => updateWhisper({ computeType: event.target.value })}
           disabled={anyLoading}
         >
@@ -188,29 +192,39 @@ function StudioTopbar() {
           <option value="float16">float16</option>
           <option value="float32">float32</option>
         </select>
-        
+
         <label className="check-row" style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-          <input 
-            type="checkbox" 
-            checked={whisperSettings.vadFilter} 
-            onChange={(event) => updateWhisper({ vadFilter: event.target.checked })} 
+          <input
+            type="checkbox"
+            checked={whisperSettings.vadFilter}
+            onChange={(event) => updateWhisper({ vadFilter: event.target.checked })}
             disabled={anyLoading}
           />
           VAD
         </label>
-        
-        <button 
-          className="button accent" 
-          onClick={onTranscribe}
-          disabled={isLoadingTranscribe || anyLoading}
-        >
-          <Wand2 size={16} /> {isLoadingTranscribe ? 'กำลังถอดเสียง...' : 'ถอดเสียง AI'}
-        </button>
+
+        {isLoadingTranscribe && activeJob?.type === 'transcribe' ? (
+          <button
+            className="button danger"
+            onClick={onCancelJob}
+            style={{ backgroundColor: '#ef4444', color: '#ffffff' }}
+          >
+            ยกเลิกถอดเสียง
+          </button>
+        ) : (
+          <button
+            className="button accent"
+            onClick={onTranscribe}
+            disabled={isLoadingTranscribe || anyLoading}
+          >
+            <Wand2 size={16} /> {isLoadingTranscribe ? 'กำลังถอดเสียง...' : 'ถอดเสียง AI'}
+          </button>
+        )}
         <span className="gpu-note">{statusText}</span>
       </div>
       <div className="top-actions">
-        <select 
-          value={project.id} 
+        <select
+          value={project.id}
           onChange={(event) => onProject(event.target.value)}
           disabled={anyLoading}
         >
@@ -221,40 +235,8 @@ function StudioTopbar() {
           <input type="file" accept="video/*" onChange={onUpload} disabled={isLoadingUpload || anyLoading} />
         </label>
         <button className="button ghost" onClick={onSave} disabled={anyLoading}><Save size={16} /> บันทึก</button>
-        
-        {/* Subtitle Export Dropdown */}
-        <select 
-          onChange={(e) => {
-            if (e.target.value) {
-              onSubtitleExport(e.target.value);
-              e.target.value = ""; // Reset
-            }
-          }}
-          defaultValue=""
-          style={{ 
-            height: '34px',
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '6px',
-            color: '#dfdfdf',
-            padding: '0 8px',
-            fontSize: '12px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            outline: 'none',
-          }}
-          disabled={anyLoading}
-        >
-          <option value="" disabled>ส่งออกซับ 📥</option>
-          <option value="srt">SRT Format (.srt)</option>
-          <option value="vtt">VTT Format (.vtt)</option>
-          <option value="ass">ASS Format (.ass)</option>
-          <option value="txt">TXT Text Only (.txt)</option>
-        </select>
 
-        <button className="button accent" onClick={onRender} disabled={isLoadingRender || anyLoading}>
-          {isLoadingRender ? 'กำลังเรนเดอร์...' : 'เรนเดอร์'}
-        </button>
+        <span className="gpu-note">ส่งออกและเรนเดอร์อยู่ในแผงขวา</span>
       </div>
     </header>
   );

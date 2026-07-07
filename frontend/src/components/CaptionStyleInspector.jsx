@@ -21,6 +21,8 @@ export function CaptionStyleInspector() {
     isLoading,
     isInspectorCollapsed,
     onInspectorCollapse,
+    activeJob,
+    onCancelJob,
   } = useEditor();
 
   const [activeTab, setActiveTab] = useState('presets'); // 'presets', 'text', 'effects', 'karaoke', 'export'
@@ -57,6 +59,7 @@ export function CaptionStyleInspector() {
   const isLoadingRender = isLoading?.render || false;
   const isLoadingExport = isLoading?.export || false;
   const exportBusy = isLoadingRender || isLoadingExport;
+  const subtitleTypeValue = renderOptions.subtitleType === 'soft' ? 'hard' : renderOptions.subtitleType;
 
   const fontList = ['Noto Sans Thai', 'Prompt', 'Kanit', 'Sarabun', 'Anuphan', 'IBM Plex Sans Thai'];
 
@@ -519,9 +522,9 @@ export function CaptionStyleInspector() {
                     
                     <label className="control-row">
                       <span>ประเภทคำบรรยาย</span>
-                      <select value={renderOptions.subtitleType} onChange={(e) => updateRenderOptions({ subtitleType: e.target.value })} disabled={exportBusy}>
+                      <select value={subtitleTypeValue} onChange={(e) => updateRenderOptions({ subtitleType: e.target.value })} disabled={exportBusy}>
                         <option value="hard">ฝังซับในวิดีโอ (Hard Subtitle)</option>
-                        <option value="soft">แยกแทร็กซับไตเติล (Soft Subtitle)</option>
+                        <option value="soft" disabled>แยกแทร็กซับไตเติล (กำลังพัฒนา)</option>
                       </select>
                     </label>
 
@@ -543,9 +546,15 @@ export function CaptionStyleInspector() {
                       </select>
                     </label>
 
-                    <button className="button accent full" onClick={onRender} style={{ marginTop: '8px' }} disabled={exportBusy}>
-                      {isLoadingRender ? 'กำลังเรนเดอร์วิดีโอ...' : 'เรนเดอร์วิดีโอจริง (Burn-in)'}
-                    </button>
+                    {isLoadingRender && activeJob?.type === 'render' ? (
+                      <button className="button danger full" onClick={onCancelJob} style={{ marginTop: '8px', backgroundColor: '#ef4444', color: '#ffffff' }}>
+                        ยกเลิกเรนเดอร์
+                      </button>
+                    ) : (
+                      <button className="button accent full" onClick={onRender} style={{ marginTop: '8px' }} disabled={exportBusy}>
+                        {isLoadingRender ? 'กำลังเรนเดอร์วิดีโอ...' : 'เรนเดอร์วิดีโอจริง (Burn-in)'}
+                      </button>
+                    )}
                   </div>
                 )}
 

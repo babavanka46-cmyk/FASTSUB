@@ -79,10 +79,10 @@ async function correctWithGemini(subtitles, apiKey) {
     'STRICTLY preserve the array structure and timeline timestamps.',
     'Do not change start or end values. Return only valid JSON matching the input schema.',
   ].join(' ');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: `${prompt}\n\n${JSON.stringify(subtitles)}` }] }],
       generationConfig: { responseMimeType: 'application/json' },

@@ -104,7 +104,6 @@ export function TimelinePanel() {
             if (!videoRef.current || !safeDuration) return;
             const rect = event.currentTarget.getBoundingClientRect();
             const clickOffset = event.clientX - rect.left;
-            const ratio = clickOffset / rect.width;
             const next = Math.min(safeDuration, Math.max(0, (clickOffset / zoom)));
             videoRef.current.currentTime = next;
             onTime(next);

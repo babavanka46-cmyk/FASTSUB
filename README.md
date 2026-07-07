@@ -2,6 +2,8 @@
 
 FASTSUB is a local full-stack subtitle editor with a companion Chrome extension for AI-assisted Thai subtitle correction.
 
+FASTSUB is designed for local desktop use. The API has no authentication and should be bound to `127.0.0.1` only unless you add your own access control.
+
 ## Apps
 
 - `backend/` - FastAPI server on `http://localhost:8100`
@@ -78,7 +80,11 @@ Open the Vite URL, usually `http://localhost:5173`.
 - `POST /api/project/{project_id}/subtitles`
 - `POST /api/project/{project_id}/subtitles/export?output_format=srt|vtt|ass`
 - `POST /api/project/{project_id}/transcribe`
+- `POST /api/project/{project_id}/transcribe/jobs`
 - `POST /api/project/{project_id}/render`
+- `POST /api/project/{project_id}/render/jobs`
+- `GET /api/jobs/{job_id}`
+- `POST /api/jobs/{job_id}/cancel`
 - `POST /api/project/{project_id}/autocorrect`
 
 Generated project files are stored under `backend/storage/projects/`.
@@ -89,7 +95,7 @@ Inspired by `Sirozha1337/faster-auto-subtitle`, FASTSUB now supports:
 
 - Exporting subtitle files as `SRT`, `VTT`, and `ASS`.
 - Hard subtitle rendering with burned-in styled subtitles.
-- Soft subtitle rendering with an embedded `mov_text` subtitle track inside MP4.
+- Soft subtitle rendering is currently disabled in the UI because it does not yet match the styled preview, BGM mix, resolution, and FPS pipeline.
 
 Render request example:
 
@@ -97,6 +103,6 @@ Render request example:
 {
   "resolution": "720p",
   "fps": 24,
-  "subtitle_type": "soft"
+  "subtitle_type": "hard"
 }
 ```

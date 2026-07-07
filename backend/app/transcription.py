@@ -12,6 +12,7 @@ from .storage import BASE_DIR, project_dir, save_subtitles, update_project_statu
 DEFAULT_MODEL = os.getenv("FASTSUB_WHISPER_MODEL", "small")
 DEFAULT_DEVICE = os.getenv("FASTSUB_WHISPER_DEVICE", "cpu")
 DEFAULT_COMPUTE_TYPE = os.getenv("FASTSUB_WHISPER_COMPUTE_TYPE", "int8")
+MAX_MODEL_CACHE_SIZE = max(1, int(os.getenv("FASTSUB_WHISPER_MODEL_CACHE_SIZE", "2")))
 
 _MODEL_CACHE = {}
 
@@ -113,6 +114,11 @@ def _get_model(model_size: str, device: str, compute_type: str):
     if cache_key not in _MODEL_CACHE:
         try:
             _MODEL_CACHE[cache_key] = WhisperModel(model_size, device=device, compute_type=compute_type)
+            while len(_MODEL_CACHE) > MAX_MODEL_CACHE_SIZE:
+                oldest_key = next(iter(_MODEL_CACHE))
+                if oldest_key == cache_key and len(_MODEL_CACHE) == 1:
+                    break
+                _MODEL_CACHE.pop(oldest_key, None)
         except Exception as exc:
             raise TranscriptionError(
                 "Could not load faster-whisper model. "
@@ -278,13 +284,18 @@ def create_video_proxy(project_id: str, source_video_rel: str) -> bool:
     file_size_mb = source_path.stat().st_size / (1024 * 1024)
     needs_proxy = codec in {"hevc", "h265", "prores"} or file_size_mb > 50.0
     
+    marker_path = source_path.parent / ".proxy_ready"
+    proxy_output = source_path.parent / "source_proxy.mp4"
+
     if not needs_proxy:
+        # หากไม่จำเป็นต้องใช้ proxy ให้เขียน marker ว่าพร้อมเลย
+        marker_path.write_text("ready", encoding="utf-8")
         return False
         
-    proxy_output = source_path.parent / "source_proxy.mp4"
-    if proxy_output.exists():
+    if marker_path.exists() and proxy_output.exists():
         return True
         
+    temp_output = source_path.parent / "source_proxy.tmp.mp4"
     command = [
         "ffmpeg",
         "-y",
@@ -296,12 +307,61 @@ def create_video_proxy(project_id: str, source_video_rel: str) -> bool:
         "-acodec", "aac",
         "-ar", "44100",
         "-ac", "2",
-        str(proxy_output)
+        "-movflags", "+faststart",
+        str(temp_output)
     ]
     try:
         subprocess.run(command, check=True, capture_output=True)
+        if temp_output.exists():
+            temp_output.replace(proxy_output)
+        marker_path.write_text("ready", encoding="utf-8")
         return True
     except Exception:
-        if proxy_output.exists():
-            proxy_output.unlink()
+        for p in (temp_output, proxy_output, marker_path):
+            if p.exists():
+                p.unlink()
         return False
+
+
+def get_proxy_status(project_id: str) -> dict:
+    """ส่งคืนสถานะ proxy ของโปรเจกต์ เพื่อให้ frontend ตรวจสอบได้"""
+    folder = project_dir(project_id)
+    uploads_dir = folder / "uploads"
+    source = None
+    if uploads_dir.exists():
+        for p in uploads_dir.iterdir():
+            if p.is_file() and p.stem == "source":
+                source = p
+                break
+
+    if not source:
+        return {"status": "ready", "using_proxy": False}
+
+    proxy = source.parent / "source_proxy.mp4"
+    marker = source.parent / ".proxy_ready"
+
+    if marker.exists():
+        return {"status": "ready", "using_proxy": proxy.exists()}
+    if proxy.exists() and not marker.exists():
+        return {"status": "processing"}
+
+    codec = check_video_codec(source)
+    size_mb = source.stat().st_size / (1024 * 1024)
+    if codec in {"hevc", "h265", "prores"} or size_mb > 50.0:
+        return {"status": "pending"}
+
+    return {"status": "ready", "using_proxy": False}
+
+
+def extract_audio_async(project_id: str, source_video_rel: str) -> None:
+    """เวอร์ชัน background — เซฟ audio_path หลังเสร็จโดยไม่บล็อก request"""
+    try:
+        audio_path = extract_audio(project_id, source_video_rel)
+        if audio_path:
+            from .storage import get_project, save_project
+            proj = get_project(project_id)
+            proj.audio_path = audio_path
+            save_project(proj)
+    except Exception as exc:
+        import logging
+        logging.error(f"extract_audio failed for {project_id}: {exc}")
